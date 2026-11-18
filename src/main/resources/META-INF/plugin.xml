@@ -1,0 +1,35 @@
+<idea-plugin>
+    <id>io.github.khorkovenko.jenkinsbuilds</id>
+    <name>Jenkins Builds</name>
+    <vendor url="https://github.com/khorkovenko/jenkins-builds">khorkovenko</vendor>
+
+    <description><![CDATA[
+        <p>A Jenkins client in a tool window: browse jobs, start and stop builds, read build details and the console log.</p>
+        <ul>
+            <li>Connection that works with corporate servers: preemptive Basic authentication with a password or an API token,
+                CSRF crumbs, the IDE proxy settings and the IDE certificate dialog for self-signed certificates</li>
+            <li>The password or token is kept in the IDE password store, the address and user name in the IDE settings</li>
+            <li><b>Test Connection</b> reports the HTTP status and the answer of the server</li>
+            <li>Jobs grouped the way Jenkins shows them: views, sections, folders and multibranch projects, with status and last build</li>
+            <li>Build list of a job: number, display name, result, start time, duration, who started it</li>
+            <li>Build with parameters: text, boolean, choice, password and branch selectors (Git Parameter) with a searchable list of values</li>
+            <li>Stop a running build, cancel a queued one, rebuild with the same parameters</li>
+            <li>Build details: causes, parameters, Git revision and branch, changes, test summary, artifacts with download, and a console log that follows a running build</li>
+        </ul>
+        <p>Open <b>View | Tool Windows | Jenkins Builds</b> and set up the server in <b>Settings | Tools | Jenkins Builds</b>.</p>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Jenkins Builds"
+                    anchor="bottom"
+                    icon="/icons/jenkinsBuilds.svg"
+                    factoryClass="io.github.khorkovenko.jenkinsbuilds.ui.JenkinsToolWindowFactory"/>
+        <applicationConfigurable parentId="tools"
+                                 id="io.github.khorkovenko.jenkinsbuilds.settings"
+                                 displayName="Jenkins Builds"
+                                 instance="io.github.khorkovenko.jenkinsbuilds.settings.JenkinsConfigurable"/>
+        <notificationGroup id="Jenkins Builds" displayType="BALLOON"/>
+    </extensions>
+</idea-plugin>

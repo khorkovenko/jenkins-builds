@@ -1,0 +1,88 @@
+{
+  "_class": "hudson.model.FreeStyleProject",
+  "name": "customersportal-custom",
+  "fullName": "customersportal-custom",
+  "displayName": "customersportal-custom",
+  "description": "Builds any branch",
+  "color": "blue_anime",
+  "buildable": true,
+  "inQueue": true,
+  "queueItem": {"_class": "hudson.model.Queue$BlockedItem", "id": 912, "why": "Build #202 is already in progress (ETA: 2 min 10 sec)"},
+  "actions": [{}, {"_class": "hudson.model.ParametersDefinitionProperty"}, {}],
+  "property": [
+    {"_class": "jenkins.model.BuildDiscarderProperty"},
+    {
+      "_class": "hudson.model.ParametersDefinitionProperty",
+      "parameterDefinitions": [
+        {
+          "_class": "net.uaznia.lukanus.hudson.plugins.gitparameter.GitParameterDefinition",
+          "defaultParameterValue": {"_class": "net.uaznia.lukanus.hudson.plugins.gitparameter.GitParameterValue", "name": "Branch_Selector", "value": "origin/master"},
+          "description": "Branch to <b>build</b>",
+          "name": "Branch_Selector",
+          "type": "PT_BRANCH"
+        },
+        {
+          "_class": "hudson.model.ChoiceParameterDefinition",
+          "defaultParameterValue": {"name": "PROFILE", "value": "dev"},
+          "description": "",
+          "name": "PROFILE",
+          "type": "ChoiceParameterDefinition",
+          "choices": ["dev", "stage", "prod"]
+        },
+        {
+          "_class": "hudson.model.BooleanParameterDefinition",
+          "defaultParameterValue": {"name": "SKIP_TESTS", "value": true},
+          "name": "SKIP_TESTS",
+          "type": "BooleanParameterDefinition"
+        },
+        {
+          "_class": "hudson.model.StringParameterDefinition",
+          "defaultParameterValue": {"name": "VERSION_SUFFIX", "value": ""},
+          "name": "VERSION_SUFFIX",
+          "type": "StringParameterDefinition"
+        },
+        {
+          "_class": "hudson.model.TextParameterDefinition",
+          "defaultParameterValue": {"name": "NOTES", "value": "line1\nline2"},
+          "name": "NOTES",
+          "type": "TextParameterDefinition"
+        },
+        {
+          "_class": "hudson.model.PasswordParameterDefinition",
+          "defaultParameterValue": {"name": "DEPLOY_KEY", "value": "hidden-default"},
+          "name": "DEPLOY_KEY",
+          "type": "PasswordParameterDefinition"
+        }
+      ]
+    }
+  ],
+  "builds": [
+    {
+      "_class": "hudson.model.FreeStyleBuild",
+      "number": 202, "displayName": "C0.0.202", "result": null, "building": true,
+      "timestamp": 1794100000000, "duration": 0, "estimatedDuration": 200000,
+      "actions": [
+        {"_class": "hudson.model.ParametersAction"},
+        {"_class": "hudson.model.CauseAction", "causes": [{"_class": "hudson.model.Cause$UserIdCause", "shortDescription": "Started by user khorkovenko", "userId": "khorkovenko", "userName": "khorkovenko"}]},
+        {}
+      ]
+    },
+    {
+      "number": 201, "displayName": "C0.0.201", "result": "SUCCESS", "building": false,
+      "timestamp": 1794000000000, "duration": 195000, "estimatedDuration": 200000,
+      "actions": [
+        {"_class": "hudson.model.CauseAction", "causes": [
+          {"_class": "com.sonyericsson.rebuild.RebuildCause", "shortDescription": "Rebuilds build #200", "upstreamBuild": 200, "upstreamProject": "customersportal-custom"},
+          {"_class": "hudson.model.Cause$UserIdCause", "shortDescription": "Started by user khorkovenko", "userId": "khorkovenko", "userName": "khorkovenko"}
+        ]}
+      ]
+    },
+    {
+      "number": 200, "displayName": "#200", "result": "FAILURE", "building": false,
+      "timestamp": 1793900000000, "duration": 4000, "estimatedDuration": 200000,
+      "actions": [
+        {"_class": "hudson.model.CauseAction", "causes": [{"_class": "hudson.triggers.TimerTrigger$TimerTriggerCause", "shortDescription": "Started by timer"}]}
+      ]
+    }
+  ]
+}

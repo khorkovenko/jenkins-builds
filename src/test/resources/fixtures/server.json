@@ -1,0 +1,104 @@
+{
+  "_class": "hudson.model.Hudson",
+  "primaryView": {"_class": "hudson.model.AllView", "name": "all"},
+  "jobs": [
+    {
+      "_class": "hudson.model.FreeStyleProject",
+      "name": "customersportal-2.2-dev",
+      "fullName": "customersportal-2.2-dev",
+      "url": "http://internal-name:8080/job/customersportal-2.2-dev/",
+      "color": "blue",
+      "lastBuild": {"_class": "hudson.model.FreeStyleBuild", "number": 310, "displayName": "D2.2.310", "result": "SUCCESS", "building": false, "timestamp": 1794000000000, "duration": 180000, "estimatedDuration": 175000}
+    },
+    {
+      "_class": "hudson.model.FreeStyleProject",
+      "name": "customersportal-2.2-stable",
+      "fullName": "customersportal-2.2-stable",
+      "url": "http://internal-name:8080/job/customersportal-2.2-stable/",
+      "color": "red",
+      "lastBuild": {"number": 41, "displayName": "#41", "result": "FAILURE", "building": false, "timestamp": 1793900000000, "duration": 60000, "estimatedDuration": 61000}
+    },
+    {
+      "_class": "hudson.model.FreeStyleProject",
+      "name": "customersportal-custom",
+      "fullName": "customersportal-custom",
+      "url": "http://internal-name:8080/job/customersportal-custom/",
+      "color": "blue_anime",
+      "lastBuild": {"number": 202, "displayName": "C0.0.202", "result": null, "building": true, "timestamp": 1794100000000, "duration": 0, "estimatedDuration": 200000}
+    },
+    {
+      "_class": "hudson.model.FreeStyleProject",
+      "name": "4.0-cpetp-dev",
+      "url": "http://internal-name:8080/job/4.0-cpetp-dev/",
+      "color": "notbuilt",
+      "lastBuild": null
+    },
+    {
+      "_class": "com.cloudbees.hudson.plugins.folder.Folder",
+      "name": "tools",
+      "fullName": "tools",
+      "url": "http://internal-name:8080/job/tools/",
+      "jobs": [
+        {
+          "_class": "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject",
+          "name": "deploy scripts",
+          "url": "http://internal-name:8080/job/tools/job/deploy%20scripts/",
+          "jobs": [
+            {
+              "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+              "name": "feature%2Fone",
+              "fullName": "tools/deploy scripts/feature%2Fone",
+              "displayName": "feature/one",
+              "url": "http://internal-name:8080/job/tools/job/deploy%20scripts/job/feature%252Fone/",
+              "color": "yellow"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "views": [
+    {
+      "_class": "hudson.model.AllView",
+      "name": "all",
+      "url": "http://internal-name:8080/",
+      "jobs": [
+        {"name": "customersportal-2.2-dev", "url": "http://internal-name:8080/job/customersportal-2.2-dev/", "color": "blue"},
+        {"name": "tools", "url": "http://internal-name:8080/job/tools/"}
+      ]
+    },
+    {
+      "_class": "hudson.plugins.sectioned_view.SectionedView",
+      "name": "Portal",
+      "url": "http://internal-name:8080/view/Portal/",
+      "jobs": [],
+      "sections": [
+        {
+          "_class": "hudson.plugins.sectioned_view.ListViewSection",
+          "name": "Customer Portal 2.2",
+          "jobs": [
+            {"name": "customersportal-2.2-dev", "url": "http://internal-name:8080/view/Portal/job/customersportal-2.2-dev/", "color": "blue"},
+            {"name": "customersportal-custom", "url": "http://internal-name:8080/view/Portal/job/customersportal-custom/", "color": "blue_anime"}
+          ]
+        },
+        {
+          "_class": "hudson.plugins.sectioned_view.ListViewSection",
+          "name": "CPETP 4.0",
+          "includeRegex": "4\\.0-cpetp-.*"
+        },
+        {
+          "_class": "hudson.plugins.sectioned_view.TextSection",
+          "name": "Notes"
+        }
+      ]
+    },
+    {
+      "_class": "hudson.model.ListView",
+      "name": "Tools",
+      "url": "http://internal-name:8080/view/Tools/",
+      "jobs": [
+        {"_class": "com.cloudbees.hudson.plugins.folder.Folder", "name": "tools", "url": "http://internal-name:8080/view/Tools/job/tools/"}
+      ]
+    }
+  ]
+}

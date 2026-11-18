@@ -1,0 +1,50 @@
+{
+  "_class": "hudson.model.FreeStyleBuild",
+  "number": 201,
+  "displayName": "C0.0.201",
+  "fullDisplayName": "customersportal-custom C0.0.201",
+  "description": null,
+  "result": "SUCCESS",
+  "building": false,
+  "timestamp": 1794000000000,
+  "duration": 195000,
+  "estimatedDuration": 200000,
+  "builtOn": "",
+  "artifacts": [
+    {"displayPath": "ROOT-C0.0.201-plain.war", "fileName": "ROOT-C0.0.201-plain.war", "relativePath": "build/libs/ROOT-C0.0.201-plain.war"},
+    {"fileName": "release notes.txt", "relativePath": "docs/release notes.txt"}
+  ],
+  "actions": [
+    {"_class": "hudson.model.ParametersAction", "parameters": [
+      {"_class": "net.uaznia.lukanus.hudson.plugins.gitparameter.GitParameterValue", "name": "Branch_Selector", "value": "origin/cp/2.2/CP-372"},
+      {"_class": "hudson.model.BooleanParameterValue", "name": "SKIP_TESTS", "value": true},
+      {"_class": "hudson.model.PasswordParameterValue", "name": "DEPLOY_KEY"}
+    ]},
+    {"_class": "hudson.model.CauseAction", "causes": [
+      {"_class": "hudson.model.Cause$UserIdCause", "shortDescription": "Started by user khorkovenko", "userId": "khorkovenko", "userName": "khorkovenko"},
+      {"_class": "com.sonyericsson.rebuild.RebuildCause", "shortDescription": "Rebuilds build #200", "upstreamBuild": 200, "upstreamProject": "customersportal-custom"}
+    ]},
+    {},
+    {"_class": "hudson.plugins.git.util.BuildData",
+      "lastBuiltRevision": {"SHA1": "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567", "branch": [{"SHA1": "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567", "name": "refs/remotes/origin/cp/2.2/CP-372"}]},
+      "remoteUrls": ["https://git.example.test/portal/customersportal.git"]},
+    {"_class": "hudson.tasks.junit.TestResultAction", "failCount": 2, "skipCount": 3, "totalCount": 120},
+    {}
+  ],
+  "changeSet": {
+    "_class": "hudson.plugins.git.GitChangeSetList",
+    "kind": "git",
+    "items": [
+      {"_class": "hudson.plugins.git.GitChangeSet",
+        "affectedPaths": ["src/main/java/A.java", "src/main/java/B.java"],
+        "commitId": "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+        "timestamp": 1793999000000,
+        "author": {"fullName": "Kostiantyn H"},
+        "authorEmail": "someone@example.test",
+        "comment": "CP-372 fix <login> form\n\nDetails here\n",
+        "id": "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+        "msg": "CP-372 fix <login> form"}
+    ]
+  },
+  "culprits": [{"fullName": "Kostiantyn H"}]
+}
