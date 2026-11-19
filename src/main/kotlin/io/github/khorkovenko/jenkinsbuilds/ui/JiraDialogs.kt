@@ -29,6 +29,7 @@ import io.github.khorkovenko.jenkinsbuilds.jira.JiraAttachment
 import io.github.khorkovenko.jenkinsbuilds.jira.JiraHtml
 import io.github.khorkovenko.jenkinsbuilds.jira.JiraIssue
 import io.github.khorkovenko.jenkinsbuilds.jira.JiraIssueDetails
+import io.github.khorkovenko.jenkinsbuilds.jira.JiraKeys
 import io.github.khorkovenko.jenkinsbuilds.jira.JiraQuery
 import com.intellij.ui.ColoredListCellRenderer
 import com.intellij.ui.SimpleTextAttributes
@@ -63,9 +64,14 @@ interface JiraServer {
     fun addComment(key: String, text: String)
     fun assign(key: String, user: JiraUser)
     fun users(key: String?, query: String): List<JiraUser>
+
+    /** The users new issues of [project] can be assigned to. */
+    fun projectUsers(project: String, query: String): List<JiraUser> = users(null, query)
     fun projects(): List<JiraProject>
     fun issueTypes(project: String): List<String>
-    fun createIssue(project: String, type: String, summary: String, description: String): String
+
+    /** Without an [assignee] Jira gives the issue to the default assignee of the project. */
+    fun createIssue(project: String, type: String, summary: String, description: String, assignee: JiraUser? = null): String
 
     /** Saves the file of [attachment] as [target]. */
     fun download(attachment: JiraAttachment, target: File)
@@ -89,8 +95,9 @@ object LiveJira : JiraServer {
     override fun users(key: String?, query: String) = client().users(key, query)
     override fun projects() = client().projects()
     override fun issueTypes(project: String) = client().issueTypes(project)
-    override fun createIssue(project: String, type: String, summary: String, description: String) =
-        client().createIssue(project, type, summary, description)
+    override fun projectUsers(project: String, query: String) = client().projectUsers(project, query)
+    override fun createIssue(project: String, type: String, summary: String, description: String, assignee: JiraUser?) =
+        client().createIssue(project, type, summary, description, assignee)
 
     override fun download(attachment: JiraAttachment, target: File) = client().download(attachment, target)
 }
@@ -311,9 +318,14 @@ class JiraIssueDialog(
 
 /**
  * Finds a Jira user by typing a part of the name. With an [issueKey] only the users that issue can be assigned to
- * are offered.
+ * are offered, with a [projectKey] the users new issues of that project can be assigned to.
  */
-class JiraUserChooser(project: Project, private val issueKey: String?, private val server: JiraServer = LiveJira) : DialogWrapper(project) {
+class JiraUserChooser(
+    project: Project,
+    private val issueKey: String?,
+    private val server: JiraServer = LiveJira,
+    private val projectKey: String? = null,
+) : DialogWrapper(project) {
 
     private val field = JBTextField()
     private val model = CollectionListModel<JiraUser>()
@@ -322,7 +334,11 @@ class JiraUserChooser(project: Project, private val issueKey: String?, private v
     private var generation = 0
 
     init {
-        title = if (issueKey.isNullOrBlank()) "Choose a Jira User" else "Assign $issueKey To"
+        title = when {
+            !issueKey.isNullOrBlank() -> "Assign $issueKey To"
+            !projectKey.isNullOrBlank() -> "Assign the New $projectKey Issue To"
+            else -> "Choose a Jira User"
+        }
         setOKButtonText("Choose")
         init()
         search()
@@ -365,7 +381,8 @@ class JiraUserChooser(project: Project, private val issueKey: String?, private v
         val mine = ++generation
         statusLabel.foreground = UIUtil.getContextHelpForeground()
         statusLabel.text = "Searching ..."
-        server.run({ server.users(issueKey, query) }) { result ->
+        val project = projectKey
+        server.run({ if (issueKey.isNullOrBlank() && !project.isNullOrBlank()) server.projectUsers(project, query) else server.users(issueKey, query) }) { result ->
             if (mine != generation || isDisposed) return@run
             result.onSuccess { users ->
                 model.replaceAll(users)
@@ -381,11 +398,18 @@ class JiraUserChooser(project: Project, private val issueKey: String?, private v
     override fun doValidate(): ValidationInfo? = if (chosen() == null) ValidationInfo("Choose a user", list) else null
 }
 
-/** A new issue: project, type, summary and description. [created] is the key of the issue after OK. */
-class JiraNewIssueDialog(project: Project, private val server: JiraServer = LiveJira) : DialogWrapper(project) {
+/**
+ * A new issue: project, type, assignee, summary and description. Without a chosen assignee Jira gives the issue to
+ * the default assignee of the project. [created] is the key of the issue after OK.
+ */
+class JiraNewIssueDialog(private val project: Project, private val server: JiraServer = LiveJira) : DialogWrapper(project) {
 
     private val projectBox = ComboBox<JiraProject>()
     private val typeBox = ComboBox<String>()
+    private val assigneeLabel = JBLabel()
+    private val chooseButton = JButton("Choose...")
+    private val automaticButton = JButton("Automatic")
+    private var assignee: JiraUser? = null
     private val summaryField = JBTextField()
     private val descriptionArea = JBTextArea(8, 50)
     private val statusLabel = JBLabel(" ")
@@ -419,9 +443,24 @@ class JiraNewIssueDialog(project: Project, private val server: JiraServer = Live
         descriptionArea.lineWrap = true
         descriptionArea.wrapStyleWord = true
         statusLabel.font = JBUI.Fonts.smallFont()
+        chooseButton.toolTipText = "Find the user by a part of the name"
+        automaticButton.toolTipText = "Let Jira give the issue to the default assignee of the project"
+        chooseButton.addActionListener {
+            val key = (projectBox.selectedItem as? JiraProject)?.key
+            val chooser = JiraUserChooser(project, null, server, key)
+            if (chooser.showAndGet()) setAssignee(chooser.chosen())
+        }
+        automaticButton.addActionListener { setAssignee(null) }
+        setAssignee(assignee)
+        val who = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), 0)).apply {
+            add(assigneeLabel)
+            add(chooseButton)
+            add(automaticButton)
+        }
         return FormBuilder.createFormBuilder()
             .addLabeledComponent("Project:", JPanel(BorderLayout()).apply { add(projectBox, BorderLayout.CENTER) })
             .addLabeledComponent("Issue type:", JPanel(BorderLayout()).apply { add(typeBox, BorderLayout.CENTER) })
+            .addLabeledComponent("Assignee:", who)
             .addLabeledComponent("Summary:", summaryField)
             .addLabeledComponent(JBLabel("Description:"), JBScrollPane(descriptionArea), JBUI.scale(8), true)
             .addComponent(statusLabel)
@@ -440,6 +479,11 @@ class JiraNewIssueDialog(project: Project, private val server: JiraServer = Live
             if (mine != generation || isDisposed) return@run
             result.onSuccess { typeBox.model = DefaultComboBoxModel(it.toTypedArray()) }.onFailure { status(message(it), error = true) }
         }
+    }
+
+    internal fun setAssignee(user: JiraUser?) {
+        assignee = user
+        assigneeLabel.text = user?.name ?: "Automatic (the default assignee of the project)"
     }
 
     internal fun fill(summary: String, description: String) {
@@ -463,9 +507,10 @@ class JiraNewIssueDialog(project: Project, private val server: JiraServer = Live
         val type = typeBox.selectedItem as? String ?: return
         val summary = summaryField.text.trim()
         val description = descriptionArea.text.trim()
+        val who = assignee
         isOKActionEnabled = false
         status("Creating the issue ...")
-        server.run({ server.createIssue(chosen.key, type, summary, description) }) { result ->
+        server.run({ server.createIssue(chosen.key, type, summary, description, who) }) { result ->
             if (isDisposed) return@run
             isOKActionEnabled = true
             result.onSuccess {
@@ -477,8 +522,9 @@ class JiraNewIssueDialog(project: Project, private val server: JiraServer = Live
 }
 
 /**
- * The Jira step of an auto-build rule: which issue, whom to assign it to and what to comment after a successful
- * build. The link to the Jenkins build is always added to the comment. [applyTo] writes the choices into a rule.
+ * The Jira step of an auto-build rule: which issues, whom to assign them to and what to comment after a successful
+ * build. Every issue gets the same comment; the link to the Jenkins build is always added to it. [applyTo] writes the
+ * choices into a rule.
  */
 class JiraActionDialog(
     private val project: Project,
@@ -486,7 +532,7 @@ class JiraActionDialog(
     private val server: JiraServer = LiveJira,
 ) : DialogWrapper(project) {
 
-    private val enabledBox = com.intellij.ui.components.JBCheckBox("After a successful build, update a Jira issue", rule.jiraEnabled)
+    private val enabledBox = com.intellij.ui.components.JBCheckBox("After a successful build, update Jira issues", rule.jiraEnabled)
     private val issueField = JBTextField(rule.jiraIssue)
     private val issueButton = JButton("Choose...")
     private val assigneeLabel = JBLabel()
@@ -502,17 +548,17 @@ class JiraActionDialog(
     }
 
     override fun createCenterPanel(): JComponent {
-        issueField.emptyText.text = if (derived != null) "$derived (from the branch name)" else "For example CP-372; empty: the key in the branch name"
+        issueField.emptyText.text = if (derived != null) "$derived (from the branch name)" else "For example CP-371, CP-372; empty: the key in the branch name"
         commentArea.lineWrap = true
         commentArea.wrapStyleWord = true
         commentArea.emptyText.text = "For example: Deployed to the test server, ready for testing"
-        issueButton.toolTipText = "Search Jira and pick the issue from a list"
+        issueButton.toolTipText = "Search Jira and pick issues from a list; Ctrl or Shift selects several"
         issueButton.addActionListener {
-            val chooser = JiraIssueChooser(project, server)
-            if (chooser.showAndGet()) chooser.chosen()?.let { issueField.text = it }
+            val chooser = JiraIssueChooser(project, server, multiple = true)
+            if (chooser.showAndGet()) addIssues(chooser.chosenKeys())
         }
         chooseButton.addActionListener {
-            val key = issueField.text.trim().ifEmpty { derived }
+            val key = JiraKeys.split(issueField.text).firstOrNull() ?: derived
             val chooser = JiraUserChooser(project, key, server)
             if (chooser.showAndGet()) setAssignee(chooser.chosen())
         }
@@ -525,13 +571,13 @@ class JiraActionDialog(
             add(chooseButton)
             add(nobodyButton)
         }
-        val hint = JBLabel("The link to the Jenkins build is added to the comment. Nothing is done when the build fails.").apply {
+        val hint = JBLabel("Every issue gets the comment with the link to the Jenkins build. Nothing is done when the build fails.").apply {
             font = JBUI.Fonts.smallFont()
             foreground = UIUtil.getContextHelpForeground()
         }
         return FormBuilder.createFormBuilder()
             .addComponent(enabledBox)
-            .addLabeledComponent("Issue:", JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
+            .addLabeledComponent("Issues:", JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
                 add(issueField, BorderLayout.CENTER)
                 add(issueButton, BorderLayout.EAST)
             })
@@ -542,6 +588,11 @@ class JiraActionDialog(
     }
 
     internal fun issueText(): String = issueField.text
+
+    /** Adds [keys] to the issues of the field; the ones already there are not repeated. */
+    internal fun addIssues(keys: List<String>) {
+        issueField.text = (JiraKeys.split(issueField.text) + keys).distinct().joinToString(", ")
+    }
 
     private fun enable() {
         val on = enabledBox.isSelected
@@ -561,11 +612,12 @@ class JiraActionDialog(
     }
 
     override fun doValidate(): ValidationInfo? {
-        val issue = issueField.text.trim()
+        val keys = JiraKeys.split(issueField.text)
+        val wrong = keys.firstOrNull { !JiraKeys.isKey(it) }
         return when {
             !enabledBox.isSelected -> null
-            issue.isNotEmpty() && !io.github.khorkovenko.jenkinsbuilds.jira.JiraKeys.isKey(issue) -> ValidationInfo("An issue key looks like CP-372", issueField)
-            issue.isEmpty() && derived == null -> ValidationInfo("The branch name has no issue key: enter the issue", issueField)
+            wrong != null -> ValidationInfo("\"$wrong\" is not an issue key; a key looks like CP-372, several are separated by commas", issueField)
+            keys.isEmpty() && derived == null -> ValidationInfo("The branch name has no issue key: enter the issue", issueField)
             else -> null
         }
     }
@@ -573,7 +625,7 @@ class JiraActionDialog(
     /** Writes what the dialog says into [rule]. */
     fun applyTo(rule: io.github.khorkovenko.jenkinsbuilds.auto.AutoBuildRule) {
         rule.jiraEnabled = enabledBox.isSelected
-        rule.jiraIssue = issueField.text.trim()
+        rule.jiraIssue = JiraKeys.split(issueField.text).joinToString(", ")
         rule.jiraComment = commentArea.text.trim()
         rule.jiraAssigneeId = assignee?.id ?: ""
         rule.jiraAssigneeName = assignee?.name ?: ""
@@ -583,9 +635,15 @@ class JiraActionDialog(
 
 /**
  * Picks an issue from a list instead of typing its key: the field takes a query as the Jira tab does (JQL or plain
- * words, Enter to search; empty lists your open issues) and the list below shows what the server found.
+ * words, Enter to search; empty lists your open issues) and the list below shows what the server found. With
+ * [multiple] several issues can be selected, with Ctrl and Shift.
  */
-class JiraIssueChooser(project: Project, private val server: JiraServer = LiveJira, startQuery: String = "") : DialogWrapper(project) {
+class JiraIssueChooser(
+    project: Project,
+    private val server: JiraServer = LiveJira,
+    startQuery: String = "",
+    private val multiple: Boolean = false,
+) : DialogWrapper(project) {
 
     private val field = JBTextField(startQuery)
     private val model = CollectionListModel<JiraIssue>()
@@ -594,7 +652,7 @@ class JiraIssueChooser(project: Project, private val server: JiraServer = LiveJi
     private var generation = 0
 
     init {
-        title = "Choose a Jira Issue"
+        title = if (multiple) "Choose Jira Issues" else "Choose a Jira Issue"
         setOKButtonText("Choose")
         init()
         search()
@@ -602,6 +660,9 @@ class JiraIssueChooser(project: Project, private val server: JiraServer = LiveJi
 
     /** The key of the chosen issue. */
     fun chosen(): String? = list.selectedValue?.key
+
+    /** The keys of all selected issues, in the order of the list. */
+    fun chosenKeys(): List<String> = list.selectedValuesList.map { it.key }
 
     override fun getPreferredFocusedComponent(): JComponent = field
 
@@ -611,7 +672,7 @@ class JiraIssueChooser(project: Project, private val server: JiraServer = LiveJi
         field.emptyText.text = "JQL such as  project = CP AND status = Open  or plain words; Enter to search. Empty: my open issues"
         // Enter in the field searches; it must not press the Choose button
         field.addActionListener { search() }
-        list.selectionMode = ListSelectionModel.SINGLE_SELECTION
+        list.selectionMode = if (multiple) ListSelectionModel.MULTIPLE_INTERVAL_SELECTION else ListSelectionModel.SINGLE_SELECTION
         list.emptyText.text = "No issues"
         list.cellRenderer = object : ColoredListCellRenderer<JiraIssue>() {
             override fun customizeCellRenderer(l: JList<out JiraIssue>, value: JiraIssue?, index: Int, selected: Boolean, hasFocus: Boolean) {
@@ -645,8 +706,8 @@ class JiraIssueChooser(project: Project, private val server: JiraServer = LiveJi
 
     internal fun offered(): List<String> = model.items.map { it.key }
 
-    internal fun select(index: Int) {
-        list.selectedIndex = index
+    internal fun select(vararg indices: Int) {
+        list.selectedIndices = indices
     }
 
     internal fun statusText(): String = statusLabel.text
@@ -661,7 +722,11 @@ class JiraIssueChooser(project: Project, private val server: JiraServer = LiveJi
             result.onSuccess { issues ->
                 model.replaceAll(issues)
                 if (issues.isNotEmpty()) list.selectedIndex = 0
-                statusLabel.text = if (issues.isEmpty()) "No issue matches" else "${issues.size} issues. Double-click one, or select it and press Choose."
+                statusLabel.text = when {
+                    issues.isEmpty() -> "No issue matches"
+                    multiple -> "${issues.size} issues. Select one, or several with Ctrl or Shift, and press Choose."
+                    else -> "${issues.size} issues. Double-click one, or select it and press Choose."
+                }
             }.onFailure {
                 statusLabel.foreground = JBColor.RED
                 statusLabel.text = message(it)

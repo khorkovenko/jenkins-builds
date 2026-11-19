@@ -47,7 +47,7 @@ intellijPlatform {
                     artifacts, changes and a coloured, searchable console log; a badge for your own builds</li>
                 <li>Auto build on push, with a command in a terminal, an SSH session or the Run window, and a Jira step
                     after a successful build</li>
-                <li>Jira: search with JQL or words, issues with comments and attachments, comment, reassign, create</li>
+                <li>Jira: search with JQL or words, issues with comments and attachments, comment, reassign, create with an assignee</li>
             </ul>
         """.trimIndent()
     }

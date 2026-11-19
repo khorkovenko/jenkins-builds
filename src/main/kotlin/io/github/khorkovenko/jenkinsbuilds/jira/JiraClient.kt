@@ -151,6 +151,12 @@ class JiraClient(val config: JiraConfig) {
         return parsed { JiraParser.parseUsers(get(url, "Searching users failed")) }
     }
 
+    /** The users new issues of [project] can be assigned to whose name matches [query]. */
+    fun projectUsers(project: String, query: String): List<JiraUser> {
+        val url = JiraUrls.projectAssignable(base, project, query, isCloud())
+        return parsed { JiraParser.parseUsers(get(url, "Searching users failed")) }
+    }
+
     /**
      * Downloads the file of [attachment] into [target] with the saved login. The data goes to a `.part` file first,
      * so a failed download leaves no broken file under the real name.
@@ -183,9 +189,9 @@ class JiraClient(val config: JiraConfig) {
     fun issueTypes(project: String): List<String> =
         parsed { JiraParser.parseIssueTypes(get(JiraUrls.project(base, project), "Loading the issue types of $project failed")) }
 
-    /** Creates an issue and returns its key. */
-    fun createIssue(project: String, type: String, summary: String, description: String): String {
-        val response = send("POST", JiraUrls.createIssue(base), JiraParser.createBody(project, type, summary, description))
+    /** Creates an issue and returns its key; without an [assignee] Jira picks the default assignee of the project. */
+    fun createIssue(project: String, type: String, summary: String, description: String, assignee: JiraUser? = null): String {
+        val response = send("POST", JiraUrls.createIssue(base), JiraParser.createBody(project, type, summary, description, assignee))
         if (!response.ok) throw failure(response, "Creating the issue failed")
         return parsed { JiraParser.parseCreatedKey(response.body) }
     }

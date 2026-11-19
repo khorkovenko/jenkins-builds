@@ -87,6 +87,10 @@ class JiraTest {
             JiraParser.createBody("CP", "Bug", "S", "D"),
         )
         assertFalse(JiraParser.createBody("CP", "Bug", "S", " ").contains("description"))
+        assertFalse(JiraParser.createBody("CP", "Bug", "S", "D").contains("assignee"))
+        assertTrue(JiraParser.createBody("CP", "Bug", "S", "D", JiraUser("ivanov", "Ivan Ivanov", false)).contains(""""assignee":{"name":"ivanov"}"""))
+        assertTrue(JiraParser.createBody("CP", "Bug", "S", "D", JiraUser("5b10ac", "Ivan", true)).contains(""""assignee":{"accountId":"5b10ac"}"""))
+        assertTrue(JiraUrls.projectAssignable("https://j", "CP", "iv", false).endsWith("/rest/api/2/user/assignable/search?project=CP&username=iv&maxResults=50"))
         assertEquals("Issue does not exist; summary: is required", JiraParser.error("""{"errorMessages":["Issue does not exist"],"errors":{"summary":"is required"}}"""))
         assertEquals("Unauthorized (401)", JiraParser.error("<html><body><h1>Unauthorized (401)</h1></body></html>"))
     }
@@ -155,7 +159,11 @@ class JiraTest {
         assertEquals("Deployed to stage\nhttps://j/job/x/7/", AutoBuildJira.comment(rule, "https://j/job/x/7/"))
         rule.jiraComment = ""
         assertEquals("https://j/job/x/7/", AutoBuildJira.comment(rule, "https://j/job/x/7/"))
+        rule.jiraIssue = "ABC-1, CP-5;CP-6  ABC-1"
+        assertEquals(listOf("ABC-1", "CP-5", "CP-6"), AutoBuildJira.issueKeys(rule))
+        assertEquals("ABC-1, CP-5, CP-6: assign to Test Engineer, comment the build link", AutoBuildJira.describe(rule))
         rule.jiraIssue = ""
+        assertEquals(listOf("CP-372"), AutoBuildJira.issueKeys(rule))
         assertEquals("CP-372 (from the branch): assign to Test Engineer, comment the build link", AutoBuildJira.describe(rule))
         // A copy of a rule keeps its Jira step
         rule.copy().let {

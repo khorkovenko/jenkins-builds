@@ -107,6 +107,10 @@ object JiraUrls {
     fun assignable(base: String, key: String, query: String, cloud: Boolean): String =
         "$base/rest/api/2/user/assignable/search?issueKey=${enc(key)}&${if (cloud) "query" else "username"}=${enc(query)}&maxResults=50"
 
+    /** Users the new issues of a project can be assigned to. */
+    fun projectAssignable(base: String, project: String, query: String, cloud: Boolean): String =
+        "$base/rest/api/2/user/assignable/search?project=${enc(project)}&${if (cloud) "query" else "username"}=${enc(query.ifEmpty { if (cloud) "" else "." })}&maxResults=50"
+
     fun users(base: String, query: String, cloud: Boolean): String =
         "$base/rest/api/2/user/search?${if (cloud) "query" else "username"}=${enc(query.ifEmpty { if (cloud) "" else "." })}&maxResults=50"
 
@@ -128,6 +132,9 @@ object JiraKeys {
     fun first(text: String?): String? = text?.let { KEY.find(it)?.value }
 
     fun isKey(text: String): Boolean = KEY.matches(text.trim())
+
+    /** The words of a list of keys such as `CP-371, CP-372`: commas, semicolons and spaces separate them. */
+    fun split(text: String?): List<String> = text.orEmpty().split(',', ';', ' ', '\t', '\n').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
 }
 
 /** Turns the answers of the Jira REST API into the model and makes the bodies it is sent. No network, so it is unit-tested. */
@@ -269,12 +276,14 @@ object JiraParser {
     fun assigneeBody(user: JiraUser): String =
         JsonObject().also { it.addProperty(if (user.cloud) "accountId" else "name", user.id) }.toString()
 
-    fun createBody(project: String, type: String, summary: String, description: String): String {
+    /** Without an [assignee] Jira gives the issue to the default assignee of the project. */
+    fun createBody(project: String, type: String, summary: String, description: String, assignee: JiraUser? = null): String {
         val fields = JsonObject()
         fields.add("project", JsonObject().also { it.addProperty("key", project) })
         fields.add("issuetype", JsonObject().also { it.addProperty("name", type) })
         fields.addProperty("summary", summary)
         if (description.isNotBlank()) fields.addProperty("description", description)
+        if (assignee != null) fields.add("assignee", JsonParser.parseString(assigneeBody(assignee)))
         return JsonObject().also { it.add("fields", fields) }.toString()
     }
 

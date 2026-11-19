@@ -73,8 +73,8 @@ class JiraUiTest : BasePlatformTestCase() {
 
         override fun issueTypes(project: String): List<String> = if (project == "ABC") listOf("Story") else listOf("Bug", "Task")
 
-        override fun createIssue(project: String, type: String, summary: String, description: String): String {
-            calls += "create $project $type $summary"
+        override fun createIssue(project: String, type: String, summary: String, description: String, assignee: JiraUser?): String {
+            calls += "create $project $type $summary ${assignee?.id}"
             return "$project-1"
         }
 
@@ -224,10 +224,22 @@ class JiraUiTest : BasePlatformTestCase() {
             assertEquals(listOf("ABC-5"), chooser.offered())
             assertEquals("ABC-5", chooser.chosen())
             chooser.select(0)
+            assertEquals(listOf("ABC-5"), chooser.chosenKeys())
             // A query the server refuses says so and keeps the list
             chooser.type("broken query = ")
             assertTrue(chooser.statusText().contains("Error in the JQL Query"))
             assertEquals(listOf("ABC-5"), chooser.offered())
+        } finally {
+            chooser.close(1)
+        }
+    }
+
+    fun testSeveralIssuesArePickedAtOnce() {
+        settings()
+        val chooser = JiraIssueChooser(project, FakeJira(), multiple = true)
+        try {
+            chooser.select(0, 2)
+            assertEquals(listOf("CP-372", "ABC-5"), chooser.chosenKeys())
         } finally {
             chooser.close(1)
         }
@@ -270,6 +282,13 @@ class JiraUiTest : BasePlatformTestCase() {
             assertFalse(rule.jiraEnabled)
             assertEquals("ABC-1", rule.jiraIssue)
             assertEquals("", rule.jiraAssigneeId)
+
+            // Several issues get the same comment; chosen keys are added to the ones typed
+            dialog.fill(true, "ABC-1", "Deployed")
+            dialog.addIssues(listOf("CP-372", "ABC-1", "CP-371"))
+            assertEquals("ABC-1, CP-372, CP-371", dialog.issueText())
+            dialog.applyTo(rule)
+            assertEquals("ABC-1, CP-372, CP-371", rule.jiraIssue)
         } finally {
             dialog.close(1)
         }

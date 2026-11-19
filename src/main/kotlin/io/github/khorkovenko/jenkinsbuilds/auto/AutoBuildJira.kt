@@ -12,19 +12,22 @@ import io.github.khorkovenko.jenkinsbuilds.jira.JiraUser
 import io.github.khorkovenko.jenkinsbuilds.settings.JenkinsSettings
 
 /**
- * The Jira step of an auto-build rule: after a successful build the issue gets a comment with the link to the build
- * and, when the rule names one, a new assignee.
+ * The Jira step of an auto-build rule: after a successful build every issue of the rule gets a comment with the link
+ * to the build and, when the rule names one, a new assignee.
  */
 object AutoBuildJira {
 
     /**
-     * The issue a rule is about: the key written into the rule, else the first key in the name of the pushed branch,
-     * else the first key in a build parameter (the branch a `-custom` job builds).
+     * The issues a rule is about: the keys written into the rule (`CP-371, CP-372`), else the first key in the name of
+     * the pushed branch, else the first key in a build parameter (the branch a `-custom` job builds).
      */
-    fun issueKey(rule: AutoBuildRule): String? =
-        rule.jiraIssue.trim().takeIf { it.isNotEmpty() }
-            ?: JiraKeys.first(rule.branch)
-            ?: rule.parameters().firstNotNullOfOrNull { JiraKeys.first(it.second) }
+    fun issueKeys(rule: AutoBuildRule): List<String> =
+        JiraKeys.split(rule.jiraIssue).ifEmpty {
+            listOfNotNull(JiraKeys.first(rule.branch) ?: rule.parameters().firstNotNullOfOrNull { JiraKeys.first(it.second) })
+        }
+
+    /** The first issue of [issueKeys]. */
+    fun issueKey(rule: AutoBuildRule): String? = issueKeys(rule).firstOrNull()
 
     /** The comment: the text of the rule and, on a line of its own, the address of the build. */
     fun comment(rule: AutoBuildRule, buildUrl: String): String =
@@ -36,7 +39,7 @@ object AutoBuildJira {
     /** What the rules table shows for the Jira step; empty when it is off. */
     fun describe(rule: AutoBuildRule): String {
         if (!rule.jiraEnabled) return ""
-        val issue = rule.jiraIssue.trim().ifEmpty { issueKey(rule)?.let { "$it (from the branch)" } ?: "issue of the branch" }
+        val issue = JiraKeys.split(rule.jiraIssue).joinToString(", ").ifEmpty { issueKey(rule)?.let { "$it (from the branch)" } ?: "issue of the branch" }
         val who = assignee(rule)?.let { "assign to ${it.name}" }
         val text = rule.jiraComment.trim().takeIf { it.isNotEmpty() }?.let { "comment \"${if (it.length > 30) it.take(30) + "..." else it}\"" } ?: "comment the build link"
         return "$issue: " + listOfNotNull(who, text).joinToString(", ")
@@ -52,28 +55,32 @@ object AutoBuildJira {
     /** Called off the UI thread when the build [number] of [rule] has ended with [result]. */
     fun afterBuild(project: Project, rule: AutoBuildRule, number: Int, result: String?) {
         if (result != "SUCCESS") {
-            notify(project, "${rule.job} #$number ended with ${result ?: "no result"}: the Jira issue was left as it is.", NotificationType.INFORMATION)
+            notify(project, "${rule.job} #$number ended with ${result ?: "no result"}: the Jira issues were left as they are.", NotificationType.INFORMATION)
             return
         }
-        val key = issueKey(rule)
-        if (key == null) {
+        val keys = issueKeys(rule)
+        if (keys.isEmpty()) {
             notify(project, "No issue key was found in the branch name \"${rule.branch}\": set the issue in the rule. Jira was not changed.", NotificationType.WARNING)
             return
         }
         val settings = JenkinsSettings.getInstance()
-        val done = ArrayList<String>()
-        try {
-            val jira = settings.jiraClient()
-            jira.addComment(key, comment(rule, JenkinsUrls.buildUrl(settings.url, rule.job, number)))
-            done += "comment added"
-            assignee(rule)?.let {
-                jira.assign(key, it)
-                done += "assigned to ${it.name}"
+        val text = comment(rule, JenkinsUrls.buildUrl(settings.url, rule.job, number))
+        // Every issue is updated on its own: a failure on one does not stop the others
+        for (key in keys) {
+            val done = ArrayList<String>()
+            try {
+                val jira = settings.jiraClient()
+                jira.addComment(key, text)
+                done += "comment added"
+                assignee(rule)?.let {
+                    jira.assign(key, it)
+                    done += "assigned to ${it.name}"
+                }
+                notify(project, "$key: " + done.joinToString(", ") + ".", NotificationType.INFORMATION)
+            } catch (e: Exception) {
+                val before = if (done.isEmpty()) "" else " Done before the failure: " + done.joinToString(", ") + "."
+                notify(project, "$key: " + JenkinsParser.htmlToText(e.message ?: e.javaClass.simpleName, 400) + before, NotificationType.ERROR)
             }
-            notify(project, "$key: " + done.joinToString(", ") + ".", NotificationType.INFORMATION)
-        } catch (e: Exception) {
-            val before = if (done.isEmpty()) "" else " Done before the failure: " + done.joinToString(", ") + "."
-            notify(project, "$key: " + JenkinsParser.htmlToText(e.message ?: e.javaClass.simpleName, 400) + before, NotificationType.ERROR)
         }
     }
 }

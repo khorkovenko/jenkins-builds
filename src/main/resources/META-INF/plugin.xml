@@ -5,7 +5,7 @@
 
     <description><![CDATA[
         <p>Jenkins and Jira in one tool window: browse jobs, start and follow builds, let a push start a build,
-        run a command and update a Jira issue when it is done.</p>
+        run a command and update Jira issues when it is done.</p>
         <p><b>Jenkins</b></p>
         <ul>
             <li>A connection that works with corporate servers: preemptive Basic authentication with a password or an API token,
@@ -25,14 +25,14 @@
             <li>A command per rule, run at once or after the build: in a new terminal tab (PowerShell, Command Prompt, Git Bash),
                 in a new SSH session of an SSH configuration of the IDE, or in the Run window. The job, the branch and the
                 number, result and address of the build can be used in it</li>
-            <li>After a successful build: comment a Jira issue with the link to the build and reassign it</li>
+            <li>After a successful build: comment one or several Jira issues with the link to the build and reassign them</li>
         </ul>
         <p><b>Jira</b></p>
         <ul>
             <li>One search field as on the Jira search page: JQL or plain words; it can be locked so its text stays</li>
             <li>An issue with its description, attachments and comments, each comment in a block of its own;
                 pictures, videos and files are links that download to your Downloads folder</li>
-            <li>Add a comment, reassign, create an issue. Works with Jira Cloud and Jira Server or Data Center</li>
+            <li>Add a comment, reassign, create an issue and choose its assignee. Works with Jira Cloud and Jira Server or Data Center</li>
         </ul>
         <p>Passwords and tokens are kept in the IDE password store. Open <b>View | Tool Windows | Jenkins Builds</b> and set up
         the servers in <b>Settings | Tools | Jenkins Builds</b> (tabs Jenkins and Jira).</p>
