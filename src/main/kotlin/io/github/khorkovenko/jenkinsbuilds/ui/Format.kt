@@ -1,5 +1,6 @@
 package io.github.khorkovenko.jenkinsbuilds.ui
 
+import io.github.khorkovenko.jenkinsbuilds.api.JenkinsParser
 import io.github.khorkovenko.jenkinsbuilds.model.BuildDetails
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -49,7 +50,9 @@ object Format {
     fun summaryHtml(jobFullName: String, build: BuildDetails, now: Long = System.currentTimeMillis()): String {
         val sb = StringBuilder("<html><body>")
         sb.append("<h3>").append(escape(build.fullDisplayName ?: "$jobFullName ${build.title}")).append("</h3>")
-        build.description?.takeIf { it.isNotBlank() }?.let { sb.append("<p>").append(escape(it)).append("</p>") }
+        // A Jenkins description may be HTML: show its text, not its tags
+        build.description?.let { JenkinsParser.htmlToText(it, 1000) }?.takeIf { it.isNotBlank() }
+            ?.let { sb.append("<p>").append(escape(it)).append("</p>") }
 
         sb.append("<table>")
         sb.append(row("Result", escape(result(build.result, build.building))))

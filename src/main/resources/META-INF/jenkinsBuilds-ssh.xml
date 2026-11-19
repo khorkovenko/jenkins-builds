@@ -1,0 +1,6 @@
+<idea-plugin>
+    <extensions defaultExtensionNs="com.intellij">
+        <projectService serviceInterface="io.github.khorkovenko.jenkinsbuilds.auto.AutoBuildSsh"
+                        serviceImplementation="io.github.khorkovenko.jenkinsbuilds.auto.AutoBuildSshImpl"/>
+    </extensions>
+</idea-plugin>

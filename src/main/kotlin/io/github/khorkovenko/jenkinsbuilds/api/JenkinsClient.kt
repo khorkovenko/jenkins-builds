@@ -18,6 +18,8 @@ import java.net.SocketTimeoutException
 import java.net.URLConnection
 import java.net.UnknownHostException
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import javax.net.ssl.SSLException
@@ -302,8 +304,9 @@ class JenkinsClient(val config: ConnectionConfig) {
     fun parameterValues(fullName: String, definition: ParamDef): List<String> {
         val cls = definition.className ?: throw JenkinsException("The server did not tell the type of ${definition.name}")
         val url = JenkinsUrls.parameterValuesUrl(base, fullName, cls, definition.name)
-        var response = post(url, emptyList(), "Reading the values of ${definition.name} failed", tolerate = setOf(404, 405))
-        if (response.status == 405 || response.status == 404) response = send(url)
+        // Newer plugin versions want a POST, older ones only answer a GET
+        var response = post(url, emptyList(), "Reading the values of ${definition.name} failed", tolerate = setOf(403, 404, 405))
+        if (response.status in setOf(403, 404, 405)) response = send(url)
         if (!response.ok) throw failure(response, "Reading the values of ${definition.name} failed")
         return parse { JenkinsParser.parseFillValues(response.body) }
     }
@@ -324,19 +327,26 @@ class JenkinsClient(val config: ConnectionConfig) {
         return response.header("Content-Length")?.toLongOrNull()
     }
 
-    /** Downloads [url] with the saved login into [target]. Cancellable through [indicator]. */
+    /**
+     * Downloads [url] with the saved login into [target]. Cancellable through [indicator]. The data goes to a
+     * `.part` file first, so a failed or cancelled download leaves no broken file under the real name.
+     */
     fun download(url: String, target: File, indicator: ProgressIndicator?) {
+        val part = File(target.parentFile, target.name + ".part")
         try {
             HttpRequests.request(url)
                 .connectTimeout(config.timeoutMillis)
                 .readTimeout(config.timeoutMillis)
                 .accept("*/*")
                 .tuner { tune(it, emptyMap()) }
-                .saveToFile(target.toPath(), indicator)
+                .saveToFile(part.toPath(), indicator)
+            Files.move(part.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
         } catch (e: ProcessCanceledException) {
             throw e
         } catch (e: IOException) {
             throw describe(e, url)
+        } finally {
+            if (part.exists()) part.delete()
         }
     }
 }

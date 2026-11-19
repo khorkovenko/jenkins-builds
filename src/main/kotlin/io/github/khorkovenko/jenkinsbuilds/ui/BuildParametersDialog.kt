@@ -46,6 +46,7 @@ class BuildParametersDialog(
     dialogTitle: String,
     private val definitions: List<ParamDef>,
     private val initial: Map<String, String>,
+    okText: String = "Build",
 ) : DialogWrapper(project) {
 
     private val STAR = SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, JBColor(0xD9A300, 0xE5C04B))
@@ -58,7 +59,7 @@ class BuildParametersDialog(
 
     init {
         title = dialogTitle
-        setOKButtonText("Build")
+        setOKButtonText(okText)
         init()
     }
 

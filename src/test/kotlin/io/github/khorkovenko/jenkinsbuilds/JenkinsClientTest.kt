@@ -309,6 +309,8 @@ class JenkinsClientTest {
             } catch (e: JenkinsException) {
                 assertEquals(404, e.status)
             }
+            // A failed download leaves neither a broken file nor its temporary part behind
+            assertEquals(listOf("app.war"), dir.toFile().list()!!.sorted())
         } finally {
             dir.toFile().deleteRecursively()
         }

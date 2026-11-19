@@ -78,6 +78,11 @@ import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.event.MouseMotionAdapter
 import com.intellij.ui.SimpleColoredComponent
+import com.intellij.ui.LayeredIcon
+import javax.swing.SwingConstants
+import io.github.khorkovenko.jenkinsbuilds.api.JenkinsException
+import io.github.khorkovenko.jenkinsbuilds.auto.AutoBuildListener
+import io.github.khorkovenko.jenkinsbuilds.auto.AutoBuildSettings
 import com.intellij.execution.impl.ConsoleViewImpl
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ScrollType
@@ -124,11 +129,6 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
 
     // ---- rows of the tree and the table -------------------------------------------------------------------------------
 
-    /** A view, a section of a view, or the "all jobs" group. */
-    private class Group(val name: String, val view: Boolean) {
-        override fun toString(): String = name
-    }
-
     private sealed class Row {
         class Queued(val id: Long, val why: String?) : Row()
         class Build(val ref: BuildRef) : Row()
@@ -168,13 +168,30 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
     /** Results of my builds that finished while the tool window was hidden. */
     private val unseen = ArrayList<String>()
     private val baseIcon: Icon = IconLoader.getIcon("/icons/jenkinsBuilds.svg", JenkinsPanel::class.java)
-    private var shownBadge: java.awt.Color? = null
+    private val autoBadge: Icon = IconLoader.getIcon("/icons/autoBadge.svg", JenkinsPanel::class.java)
+    private val autoOnIcon: Icon = IconLoader.getIcon("/icons/autoOn.svg", JenkinsPanel::class.java)
+    private val autoOffIcon: Icon = IconLoader.getIcon("/icons/autoOff.svg", JenkinsPanel::class.java)
+
+    /** What the button of the tool window shows now: the colour of the status dot and whether the auto build is on. */
+    private var shownBadge: String? = null
+
+    /** Whether the tree had a group of running jobs the last time it was filled. */
+    private var runningShown = false
+
+    /** Set when a build of mine started or ended, so the job tree is loaded again at the next tick. */
+    private var treeIsStale = false
 
     /** A build to select as soon as it shows up in the list (a queue item that started). */
     private var selectWhenListed: Int? = null
 
+    /** Address and user of the server whose data is shown, see [serverIdentity]. */
+    private var shownServer: String? = null
+
     private var lastPoll = 0L
     private var consoleSession = 0
+
+    /** Failed attempts in a row to read the next piece of the log. */
+    private var consoleFailures = 0
     private var consoleShown: Pair<String, Int>? = null
 
     /** The end of the log that has no line break yet. */
@@ -220,6 +237,18 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
         Disposer.register(this, console)
         buildUi()
 
+        // A build started by a push: follow it like one started with the Build button
+        project.messageBus.connect(this).subscribe(AutoBuildListener.TOPIC, AutoBuildListener { job, id ->
+            if (disposed) return@AutoBuildListener
+            if (id != null) tracked[id] = Tracked(job, "Waiting in the queue")
+            lastPoll = 0
+            updateBadge()
+            status("$job: queued by the auto build")
+            if (currentJob?.fullName == job) {
+                fillRows()
+                reloadJob(quiet = true)
+            }
+        })
         ApplicationManager.getApplication().messageBus.connect(this).subscribe(JenkinsSettingsListener.TOPIC, JenkinsSettingsListener {
             ApplicationManager.getApplication().invokeLater({ if (!disposed) refreshAll() }, ModalityState.any())
         })
@@ -228,6 +257,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
         }, 2, 1, TimeUnit.SECONDS)
 
         refreshAll()
+        updateBadge()
     }
 
     override fun dispose() {
@@ -260,6 +290,13 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
                 rebuildTree()
                 status(if (it) "Showing the favourite jobs only" else "Showing all jobs")
             })
+            add(toggle("Show Hidden Folders", "Show the folders you have hidden, greyed, so they can be brought back",
+                AllIcons.Actions.ToggleVisibility, { true }, { JenkinsSettings.getInstance().showHiddenFolders }) {
+                JenkinsSettings.getInstance().showHiddenFolders = it
+                rebuildTree()
+                val count = JenkinsSettings.getInstance().hiddenFolders.size
+                status(if (it) "Showing the $count hidden folder" + (if (count == 1) "" else "s") else "Hidden folders are not shown")
+            })
             add(action("Expand All", "Open every view and folder", AllIcons.Actions.Expandall, { treeRoot.childCount > 0 }) {
                 var row = 0
                 while (row < jobTree.rowCount) jobTree.expandRow(row++)
@@ -268,9 +305,24 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
                 for (row in jobTree.rowCount - 1 downTo 0) jobTree.collapseRow(row)
             })
             add(Separator.getInstance())
+            // Shown pressed while the auto build is on; a click always opens its dialog
+            // A solid orange button while the auto build is on, a grey outline while it is off
+            add(object : DumbAwareAction("Auto", "Auto build on push: choose a branch of this project and the job to build when it is pushed", autoOffIcon) {
+                override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+                override fun update(e: AnActionEvent) {
+                    val on = !disposed && AutoBuildSettings.getInstance(project).active()
+                    e.presentation.icon = if (on) autoOnIcon else autoOffIcon
+                    e.presentation.text = if (on) "Auto Build on Push Is On" else "Auto Build on Push Is Off"
+                    e.presentation.isEnabled = !disposed
+                }
+
+                override fun actionPerformed(e: AnActionEvent) {
+                    if (!disposed) openAutoBuild()
+                }
+            })
             add(action("Jenkins Settings", "Server address and login", AllIcons.General.Settings, { true }) { openSettings() })
         }
-        PopupHandler.installPopupMenu(jobTree, DefaultActionGroup(favouriteAction), "JenkinsBuilds.JobPopup")
+        PopupHandler.installPopupMenu(jobTree, DefaultActionGroup(favouriteAction, createHideAction()), "JenkinsBuilds.JobPopup")
         val toolbar = ActionManager.getInstance().createActionToolbar("JenkinsBuilds.Toolbar", group, true)
         toolbar.targetComponent = this
         setToolbar(toolbar.component)
@@ -279,7 +331,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
         jobTree.isRootVisible = false
         jobTree.showsRootHandles = true
         jobTree.selectionModel.selectionMode = TreeSelectionModel.SINGLE_TREE_SELECTION
-        jobTree.cellRenderer = JobRenderer()
+        jobTree.cellRenderer = JobTree.Renderer(clickableStar = true)
         jobTree.emptyText.text = "Loading..."
         jobTree.addTreeSelectionListener { if (!rebuildingTree) onJobSelected() }
         // The spinner of a running job or build is an animated icon inside a renderer
@@ -506,12 +558,12 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
         val row = jobTree.getRowForPath(path)
         val cell = jobTree.cellRenderer.getTreeCellRendererComponent(jobTree, node, jobTree.isRowSelected(row), false, true, row, false)
             as? SimpleColoredComponent ?: return null
-        return if (cell.getFragmentTagAt(e.x - bounds.x) === STAR_TAG) job else null
+        return if (cell.getFragmentTagAt(e.x - bounds.x) === JobTree.STAR_TAG) job else null
     }
 
     private fun setFavourite(job: JobNode, favourite: Boolean) {
         JenkinsSettings.getInstance().setFavouriteJob(job.fullName, favourite)
-        if (favourite) expanded += "g:$FAVOURITES"
+        if (favourite) expanded += JobTree.FAVOURITES_KEY
         rebuildTree()
         status(if (favourite) "${job.fullName} added to the favourites" else "${job.fullName} removed from the favourites")
     }
@@ -525,10 +577,58 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
         ) { favourite -> selectedTreeJob()?.let { setFavourite(it, favourite) } }
     }
 
+    /** The key of the folder, view or section the tree selection points at; jobs give null. */
+    private fun selectedFolderKey(): String? {
+        val path = jobTree.selectionPath ?: return null
+        return if (JobTree.isFolder(path.lastPathComponent)) key(path) else null
+    }
+
+    /** Hides the folder with [key], or brings it back. */
+    internal fun setFolderHidden(key: String, hidden: Boolean) {
+        val settings = JenkinsSettings.getInstance()
+        settings.setHiddenFolder(key, hidden)
+        rebuildTree()
+        status(
+            when {
+                !hidden -> "The folder is shown again"
+                settings.showHiddenFolders -> "The folder is marked as hidden"
+                else -> "The folder is hidden. Show Hidden Folders on the toolbar brings it back into view."
+            },
+        )
+    }
+
+    /** "Hide Folder" in the menu of the tree; on a hidden folder (seen with Show Hidden Folders) it is "Show Folder Again". */
+    private fun createHideAction(): AnAction = object : DumbAwareAction("Hide Folder", "Hide this folder in the job tree", AllIcons.Actions.ToggleVisibility) {
+        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
+        override fun update(e: AnActionEvent) {
+            val key = if (disposed) null else selectedFolderKey()
+            e.presentation.isEnabledAndVisible = key != null
+            if (key != null) {
+                e.presentation.text = if (JenkinsSettings.getInstance().isHiddenFolder(key)) "Show Folder Again" else "Hide Folder"
+            }
+        }
+
+        override fun actionPerformed(e: AnActionEvent) {
+            if (disposed) return
+            val key = selectedFolderKey() ?: return
+            setFolderHidden(key, !JenkinsSettings.getInstance().isHiddenFolder(key))
+        }
+    }
+
     /** Shows [tree] as if the server had answered with it. For the tests. */
     internal fun showTree(tree: ServerTree) {
         server = tree
         rebuildTree()
+    }
+
+    private fun openAutoBuild() {
+        if (AutoBuildDialog(project, server, currentJob?.fullName).showAndGet()) {
+            val settings = AutoBuildSettings.getInstance(project)
+            val count = settings.rules().count { it.enabled }
+            status(if (settings.active()) "Auto build on push is on for $count branch" + (if (count == 1) "" else "es") else "Auto build on push is off")
+            updateBadge()
+        }
     }
 
     private fun openSettings() {
@@ -567,17 +667,19 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
         s.future?.cancel(false)
         val generation = ++s.generation
         s.future = AppExecutorUtil.getAppExecutorService().submit {
+            // Everything is caught, a cancellation too: the slot must always be released on the UI thread below,
+            // or it would count as busy for ever and its polling would stop
             val result = try {
                 Result.success(work(JenkinsSettings.getInstance().client()))
-            } catch (e: ProcessCanceledException) {
-                throw e
             } catch (e: Throwable) {
+                // The login was refused: the password may have been read while the store was locked, read it again next time
+                if ((e as? JenkinsException)?.status == 401) JenkinsSettings.getInstance().forgetLogin()
                 Result.failure(e)
             }
             ApplicationManager.getApplication().invokeLater({
                 if (disposed || s.generation != generation) return@invokeLater
                 s.future = null
-                result.fold(done, failed)
+                result.fold(done) { if (it !is ProcessCanceledException) failed(it) }
             }, ModalityState.any())
         }
     }
@@ -600,9 +702,30 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
 
     // ---- jobs ---------------------------------------------------------------------------------------------------------
 
+    private fun serverIdentity(): String = JenkinsSettings.getInstance().let { it.url + "\n" + it.username }
+
     private fun refreshAll() {
+        // Another server or another user: nothing that is shown or followed belongs to it
+        val identity = serverIdentity()
+        if (identity != shownServer) {
+            shownServer = identity
+            for (slot in listOf("tree", "job", "queue", "watch")) cancel(slot)
+            server = null
+            currentJob = null
+            jobDetails = null
+            selectWhenListed = null
+            tracked.clear()
+            watched.clear()
+            unseen.clear()
+            updateBadge()
+            clearBuild("Select a build to see its details.")
+            rows.clear()
+            buildsModel.fireTableDataChanged()
+            buildsTable.emptyText.text = "Select a job"
+        }
         loadTree(quiet = false)
         if (currentJob != null) reloadJob(quiet = false)
+        if (currentBuild != null) reloadBuild(quiet = true)
     }
 
     private fun loadTree(quiet: Boolean) {
@@ -651,13 +774,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
 
     private fun countJobs(jobs: List<JobNode>): Int = jobs.sumOf { if (it.container) countJobs(it.children) else 1 }
 
-    private fun key(path: TreePath): String = path.path.drop(1).joinToString("\u0000") { node ->
-        when (val o = (node as DefaultMutableTreeNode).userObject) {
-            is JobNode -> "j:" + o.fullName
-            is Group -> "g:" + o.name
-            else -> o.toString()
-        }
-    }
+    private fun key(path: TreePath): String = JobTree.key(path)
 
     /** Fills the tree from [server] and the filter, keeping expansion and selection. */
     private fun rebuildTree() {
@@ -671,41 +788,20 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
             val settings = JenkinsSettings.getInstance()
             val onlyFavourites = settings.onlyFavouriteJobs
             if (tree != null) {
-                // The favourites come first, as a flat list in the order they were added
-                val known = HashMap<String, JobNode>()
-                fun collect(jobs: List<JobNode>) {
-                    for (job in jobs) if (job.container) collect(job.children) else known.putIfAbsent(job.fullName, job)
-                }
-                collect(tree.jobs)
-                fun collectView(view: ViewNode) {
-                    collect(view.jobs)
-                    view.sections.forEach { collect(it.jobs) }
-                    view.views.forEach { collectView(it) }
-                }
-                tree.views.forEach { collectView(it) }
-                addGroup(treeRoot, Group(FAVOURITES, true), settings.favouriteJobs.mapNotNull { known[it] }, query)
-                if (firstTree) expanded += "g:$FAVOURITES"
-
-                if (!onlyFavourites) {
-                    val all = Group(tree.primaryView?.takeIf { it.isNotBlank() } ?: "All", true)
-                    val before = treeRoot.childCount
-                    addGroup(treeRoot, all, tree.jobs, query)
-                    val allNode = if (treeRoot.childCount > before) treeRoot.getChildAt(before) else null
-                    for (view in tree.views) {
-                        // The primary view lists every job again: the group above already shows them, with their folders
-                        val isAll = view.name.equals(tree.primaryView, ignoreCase = true) || view.name.equals("all", ignoreCase = true)
-                        if (isAll && view.sections.isEmpty() && view.views.isEmpty()) continue
-                        addView(treeRoot, view, query)
-                    }
-                    if (firstTree) {
-                        firstTree = false
-                        // Start with the views open; the group with everything only when there is no other view
-                        val views = treeRoot.childCount - before
-                        for (i in 0 until treeRoot.childCount) {
-                            val node = treeRoot.getChildAt(i) as DefaultMutableTreeNode
-                            if (node === allNode && views > 1) continue
-                            remember(node, 2)
-                        }
+                val filled = JobTree.fill(
+                    treeRoot, tree, query, onlyFavourites, settings.favouriteJobs, settings.hiddenFolders, settings.showHiddenFolders,
+                )
+                if (firstTree) expanded += JobTree.FAVOURITES_KEY
+                // The group of running jobs opens by itself each time it appears
+                if (filled.hasRunning && !runningShown) expanded += JobTree.RUNNING_KEY
+                runningShown = filled.hasRunning
+                if (!onlyFavourites && firstTree) {
+                    firstTree = false
+                    // Start with the views open; the group with everything only when there is no other view
+                    for (i in 0 until treeRoot.childCount) {
+                        val node = treeRoot.getChildAt(i) as DefaultMutableTreeNode
+                        if (node === filled.allNode && filled.groups > 1) continue
+                        remember(node, 2)
                     }
                 }
             }
@@ -715,6 +811,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
                     onlyFavourites && settings.favouriteJobs.isEmpty() -> "No favourite jobs yet: click the star beside a job"
                     query.isNotEmpty() -> "No job matches \"$query\""
                     onlyFavourites -> "The favourite jobs are not on this server"
+                    settings.hiddenFolders.isNotEmpty() -> "Every folder is hidden: press Show Hidden Folders on the toolbar"
                     else -> "The server has no jobs you may see"
                 }
             }
@@ -730,7 +827,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
     }
 
     private fun remember(node: DefaultMutableTreeNode, levels: Int) {
-        if (levels <= 0 || node.userObject !is Group) return
+        if (levels <= 0 || node.userObject !is JobTree.Group) return
         expanded += key(TreePath(node.path))
         for (i in 0 until node.childCount) remember(node.getChildAt(i) as DefaultMutableTreeNode, levels - 1)
     }
@@ -758,38 +855,6 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
             if (byJob == null && wantedJob != null && job != null && !job.container && job.fullName == wantedJob) byJob = n
         }
         return byJob
-    }
-
-    private fun addView(parent: DefaultMutableTreeNode, view: ViewNode, query: String) {
-        val node = DefaultMutableTreeNode(Group(view.name, true))
-        if (view.sections.isNotEmpty()) {
-            for (section in view.sections) addGroup(node, Group(section.name, false), section.jobs, query)
-        } else {
-            for (job in view.jobs) addJob(node, job, query)
-        }
-        for (child in view.views) addView(node, child, query)
-        if (node.childCount > 0) parent.add(node)
-    }
-
-    private fun addGroup(parent: DefaultMutableTreeNode, group: Group, jobs: List<JobNode>, query: String) {
-        val node = DefaultMutableTreeNode(group)
-        for (job in jobs) addJob(node, job, query)
-        if (node.childCount > 0) parent.add(node)
-    }
-
-    private fun matches(job: JobNode, query: String): Boolean =
-        query.isEmpty() || job.fullName.contains(query, ignoreCase = true) || job.label.contains(query, ignoreCase = true)
-
-    private fun addJob(parent: DefaultMutableTreeNode, job: JobNode, query: String) {
-        val node = DefaultMutableTreeNode(job)
-        if (job.container) {
-            // A folder that matches is shown with everything in it
-            val below = if (matches(job, query)) "" else query
-            for (child in job.children) addJob(node, child, below)
-            if (node.childCount > 0 || matches(job, query)) parent.add(node)
-        } else if (matches(job, query)) {
-            parent.add(node)
-        }
     }
 
     private fun onJobSelected() {
@@ -825,7 +890,8 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
             // Builds I started elsewhere (in the browser, say) count as mine too
             val me = JenkinsSettings.getInstance().username
             if (me.isNotEmpty()) {
-                details.builds.filter { it.building && it.startedBy.equals(me, ignoreCase = true) }.forEach { watchBuild(job.fullName, it.number) }
+                details.builds.filter { it.building && (it.startedById ?: it.startedBy).equals(me, ignoreCase = true) }
+                    .forEach { watchBuild(job.fullName, it.number) }
                 updateBadge()
             }
             fillRows()
@@ -958,7 +1024,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
             sizes
         }, failed = {}) { sizes ->
             artifactSizes.putAll(sizes)
-            artifactsModel.fireTableRowsUpdated(0, maxOf(0, artifacts.size - 1))
+            if (artifacts.isNotEmpty()) artifactsModel.fireTableRowsUpdated(0, artifacts.size - 1)
         }
     }
 
@@ -969,6 +1035,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
         if (consoleShown == wanted) return
         consoleShown = wanted
         console.clear()
+        consoleFailures = 0
         consolePending = ""
         clearSearchMarks()
         followConsole(job.fullName, number, 0, ++consoleSession)
@@ -1042,17 +1109,27 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
 
     /** Reads the log from [start] and, while the build still writes, comes back for more. */
     private fun followConsole(fullName: String, number: Int, start: Long, session: Int) {
+        fun again(from: Long, delayMillis: Long) {
+            AppExecutorUtil.getAppScheduledExecutorService().schedule({
+                ApplicationManager.getApplication().invokeLater({
+                    if (!disposed && session == consoleSession) followConsole(fullName, number, from, session)
+                }, ModalityState.any())
+            }, delayMillis, TimeUnit.MILLISECONDS)
+        }
         load("console", { it.console(fullName, number, start) }, failed = { error ->
-            if (session == consoleSession) console.print("\n" + message(error) + "\n", ConsoleViewContentType.ERROR_OUTPUT)
+            if (session != consoleSession) return@load
+            // One lost request must not end the following of a running build: try the same piece again a few times
+            if (++consoleFailures <= MAX_CONSOLE_RETRIES) {
+                again(start, CONSOLE_POLL_MILLIS * 2)
+            } else {
+                console.print("\n" + message(error) + "\n", ConsoleViewContentType.ERROR_OUTPUT)
+            }
         }) { chunk ->
             if (session != consoleSession) return@load
+            consoleFailures = 0
             printConsole(chunk.text, last = !chunk.more)
             if (chunk.more) {
-                AppExecutorUtil.getAppScheduledExecutorService().schedule({
-                    ApplicationManager.getApplication().invokeLater({
-                        if (!disposed && session == consoleSession) followConsole(fullName, number, chunk.nextStart, session)
-                    }, ModalityState.any())
-                }, CONSOLE_POLL_MILLIS, TimeUnit.MILLISECONDS)
+                again(chunk.nextStart, CONSOLE_POLL_MILLIS)
             } else if (buildDetails?.building == true) {
                 reloadBuild(quiet = true)
             }
@@ -1076,6 +1153,11 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
         if (tracked.isNotEmpty() && !busy("queue")) pollQueue()
         if (watched.isNotEmpty() && !busy("watch")) pollWatched()
         if (!visible) return
+        // One of my builds started or ended: the status icons and the In Progress group are out of date
+        if (treeIsStale && !busy("tree")) {
+            treeIsStale = false
+            loadTree(quiet = true)
+        }
         val job = currentJob ?: return
         val details = jobDetails
         val active = (details != null && (details.queueItem != null || details.builds.any { it.building })) ||
@@ -1106,6 +1188,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
                 watch.failures = 0
                 if (details.building) continue
                 watched.remove(key)
+                treeIsStale = true
                 val result = Format.result(details.result, false)
                 if (!toolWindow.isVisible) {
                     unseen += details.result ?: ""
@@ -1135,9 +1218,19 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
             Badge.FINISHED -> JBColor(0x208A3C, 0x5FAD65)
             Badge.FAILED -> JBColor(0xDB3B4B, 0xE55765)
         }
-        if (color == shownBadge) return
-        shownBadge = color
-        toolWindow.setIcon(if (color == null) baseIcon else ExecutionUtil.getIndicator(baseIcon, baseIcon.iconWidth, baseIcon.iconHeight, color))
+        val auto = AutoBuildSettings.getInstance(project).active()
+        val state = "${color?.rgb}/$auto"
+        if (state == shownBadge) return
+        shownBadge = state
+        var icon: Icon = if (color == null) baseIcon else ExecutionUtil.getIndicator(baseIcon, baseIcon.iconWidth, baseIcon.iconHeight, color)
+        if (auto) {
+            // The auto build on push is on: a small lightning in the lower left corner
+            icon = LayeredIcon(2).also {
+                it.setIcon(icon, 0)
+                it.setIcon(autoBadge, 1, SwingConstants.SOUTH_WEST)
+            }
+        }
+        toolWindow.setIcon(icon)
     }
 
     private fun pollQueue() {
@@ -1155,6 +1248,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
                     item.executableNumber != null -> {
                         tracked.remove(id)
                         watchBuild(watch.job, item.executableNumber)
+                        treeIsStale = true
                         status("${watch.job}: build #${item.executableNumber} started")
                         if (currentJob?.fullName == watch.job) {
                             val row = selectedRow()
@@ -1322,10 +1416,19 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
                 }
             }
 
+            private var cancelled = false
+
+            override fun onCancel() {
+                cancelled = true
+            }
+
             override fun onFinished() {
+                // Cancelled before anything was saved: there is nothing to tell
+                if (cancelled && saved.isEmpty()) return
                 val group = NotificationGroupManager.getInstance().getNotificationGroup("Jenkins Builds")
                 val error = failure
                 val text = when {
+                    cancelled -> "Download cancelled: ${saved.size} of ${list.size} files saved to ${directory.path}"
                     error != null -> "Download failed after ${saved.size} of ${list.size} files: $error"
                     saved.size == 1 -> "${saved[0].name} saved to ${directory.path}"
                     else -> "${saved.size} of ${list.size} files saved to ${directory.path}"
@@ -1398,42 +1501,12 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
         }
     }
 
-    private class JobRenderer : ColoredTreeCellRenderer() {
-        override fun customizeCellRenderer(tree: JTree, value: Any?, selected: Boolean, expanded: Boolean, leaf: Boolean, row: Int, hasFocus: Boolean) {
-            when (val item = (value as? DefaultMutableTreeNode)?.userObject) {
-                is Group -> {
-                    icon = if (item.view) AllIcons.Nodes.Folder else AllIcons.Nodes.Package
-                    append(item.name, if (item.view) SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES else SimpleTextAttributes.REGULAR_ATTRIBUTES)
-                }
-                is JobNode -> {
-                    if (item.container) {
-                        icon = AllIcons.Nodes.Folder
-                        append(item.label)
-                    } else {
-                        icon = colorIcon(item.color)
-                        append(item.label)
-                        if (JenkinsSettings.getInstance().isFavouriteJob(item.fullName)) {
-                            append("  ★ ", STAR, STAR_TAG)
-                        } else {
-                            append("  ☆ ", SimpleTextAttributes.GRAYED_ATTRIBUTES, STAR_TAG)
-                        }
-                        item.lastBuild?.let { last ->
-                            val result = Format.result(last.result, last.building)
-                            val suffix = if (result == "Success") "" else ", " + result.lowercase()
-                            append("${last.title}$suffix", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-                        }
-                    }
-                }
-                else -> append(value?.toString() ?: "")
-            }
-        }
-    }
-
     companion object {
         private const val ARTIFACTS_TAB = 1
         private const val CONSOLE_TAB = 2
         private const val CONSOLE_POLL_MILLIS = 1500L
         private const val MAX_SEARCH_MARKS = 2000
+        private const val MAX_CONSOLE_RETRIES = 5
 
         private fun consoleType(name: String, color: JBColor): ConsoleViewContentType =
             ConsoleViewContentType(name, TextAttributes(color, null, null, null, Font.PLAIN))
@@ -1442,7 +1515,6 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
         private val CONSOLE_WARNING = consoleType("JENKINS_BUILDS_WARNING", JBColor(0xA36B00, 0xE0A040))
         private val CONSOLE_STEP = consoleType("JENKINS_BUILDS_STEP", JBColor(0x2470B3, 0x6CA5E0))
         private const val MAX_SIZED_ARTIFACTS = 50
-        private const val FAVOURITES = "Favourites"
 
         /**
          * The badge of the tool window button. An unseen result wins over a running build: green when every unseen
@@ -1453,25 +1525,6 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
             unseen.isNotEmpty() -> Badge.FINISHED
             active -> Badge.RUNNING
             else -> Badge.NONE
-        }
-
-        /** Marks the star in a job row, so a click on it can be told from a click on the name. */
-        private val STAR_TAG = Any()
-        private val STAR = SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, JBColor(0xD9A300, 0xE5C04B))
-
-        /** The icon for a Jenkins ball colour: `blue`, `red`, `yellow`, `aborted`, `disabled`, `notbuilt`, each also as `_anime`. */
-        private fun colorIcon(color: String?): Icon {
-            if (color == null) return AllIcons.RunConfigurations.TestUnknown
-            if (color.endsWith("_anime")) return AnimatedIcon.Default.INSTANCE
-            return when (color) {
-                "blue", "green" -> AllIcons.RunConfigurations.TestPassed
-                "red" -> AllIcons.RunConfigurations.TestError
-                "yellow" -> AllIcons.RunConfigurations.TestFailed
-                "aborted" -> AllIcons.RunConfigurations.TestTerminated
-                "disabled" -> AllIcons.RunConfigurations.TestIgnored
-                "notbuilt", "nobuilt" -> AllIcons.RunConfigurations.TestNotRan
-                else -> AllIcons.RunConfigurations.TestUnknown
-            }
         }
 
         private fun resultIcon(result: String?, building: Boolean, animated: Boolean): Icon = when {

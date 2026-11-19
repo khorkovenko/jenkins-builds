@@ -10,6 +10,8 @@ data class BuildRef(
     val duration: Long,
     val estimatedDuration: Long,
     val startedBy: String?,
+    /** The login of the user that started the build; [startedBy] is the name shown, which may be the full name. */
+    val startedById: String? = null,
 ) {
     /** `C0.0.202` when the job names its builds, otherwise `#202`. */
     val title: String get() = displayName?.takeIf { it.isNotBlank() } ?: "#$number"

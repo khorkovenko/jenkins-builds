@@ -7,6 +7,7 @@ import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
+import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
@@ -36,6 +37,7 @@ class JenkinsConfigurable : SearchableConfigurable, Configurable.NoScroll {
     private val testButton = JButton("Test Connection")
     private val resultLabel = JBLabel()
     private val storeWarning = JBLabel()
+    private val jiraForm = JiraSettingsForm()
 
     /** The secret in the password store; null until it was read in the background. */
     @Volatile private var storedSecret: String? = null
@@ -73,9 +75,15 @@ class JenkinsConfigurable : SearchableConfigurable, Configurable.NoScroll {
             .addComponent(testRow)
             .addComponent(resultLabel)
             .panel
-        form.border = JBUI.Borders.empty(4)
-        return JPanel(BorderLayout()).apply { add(form, BorderLayout.NORTH) }.also { panel = it }
+        form.border = JBUI.Borders.empty(8)
+        // Two tabs on one page: the login to Jenkins and the login to Jira
+        val tabs = JBTabbedPane()
+        tabs.addTab("Jenkins", JPanel(BorderLayout()).apply { add(form, BorderLayout.NORTH) })
+        tabs.addTab("Jira", jiraForm.component)
+        return JPanel(BorderLayout()).apply { add(tabs, BorderLayout.CENTER) }.also { panel = it }
     }
+
+    internal fun jiraTexts(): List<String> = jiraForm.texts()
 
     private fun narrow(spinner: JSpinner): JComponent =
         JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply { add(spinner) }
@@ -86,11 +94,13 @@ class JenkinsConfigurable : SearchableConfigurable, Configurable.NoScroll {
         val settings = JenkinsSettings.getInstance()
         val state = settings.state
         val stored = storedSecret
-        return JenkinsUrls.normalizeBase(urlField.text) != JenkinsUrls.normalizeBase(state.url) ||
+        return jiraForm.isModified() ||
+            JenkinsUrls.normalizeBase(urlField.text) != JenkinsUrls.normalizeBase(state.url) ||
             userField.text.trim() != state.username ||
-            timeoutSpinner.value != state.timeoutSeconds ||
-            buildsSpinner.value != state.buildsLimit ||
-            refreshSpinner.value != state.refreshSeconds ||
+            // The spinners show the saved numbers brought into range, so compare with those
+            timeoutSpinner.value != state.timeoutSeconds.coerceIn(1, 600) ||
+            buildsSpinner.value != state.buildsLimit.coerceIn(1, 500) ||
+            refreshSpinner.value != state.refreshSeconds.coerceIn(2, 600) ||
             (if (stored == null) secretText().isNotEmpty() else secretText() != stored)
     }
 
@@ -109,9 +119,11 @@ class JenkinsConfigurable : SearchableConfigurable, Configurable.NoScroll {
         storedSecret = secret
         urlField.text = settings.state.url
         userField.text = settings.state.username
+        if (jiraForm.isModified()) jiraForm.apply()
     }
 
     override fun reset() {
+        jiraForm.reset()
         val settings = JenkinsSettings.getInstance()
         val state = settings.state
         urlField.text = state.url
@@ -149,6 +161,7 @@ class JenkinsConfigurable : SearchableConfigurable, Configurable.NoScroll {
     }
 
     override fun disposeUIResources() {
+        jiraForm.dispose()
         loadGeneration++
         panel = null
     }

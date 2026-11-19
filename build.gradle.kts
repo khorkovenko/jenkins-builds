@@ -16,6 +16,12 @@ dependencies {
     intellijPlatform {
         // The IDE the plugin is compiled against and launched with by `runIde`
         intellijIdea("2025.3")
+        // Optional: the auto build on push watches the Git repositories of the project
+        bundledPlugin("Git4Idea")
+        // The command of an auto-build rule can be typed into the terminal: classic and reworked terminal API
+        bundledPlugin("org.jetbrains.plugins.terminal")
+        // Optional: SSH sessions of the SSH configurations of the IDE
+        bundledPlugin("org.jetbrains.plugins.remote-run")
         // For the tests that build the tool window, the settings page and the build form inside a headless IDE
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
     }
@@ -34,9 +40,15 @@ intellijPlatform {
             untilBuild = provider { null } // no upper bound
         }
         changeNotes = """
-            <p><b>1.0.0</b>: first release. Jobs grouped by view, section and folder, build list, parameterized
-            builds with branch selectors, stop and cancel, build details with artifacts, changes and a following
-            console log.</p>
+            <p><b>1.0.0</b>: first release.</p>
+            <ul>
+                <li>Jenkins: jobs by view, section and folder with favourites, hidden folders and a group of running jobs;
+                    builds, parameterized builds with branch selectors, stop, cancel and rebuild; build details with
+                    artifacts, changes and a coloured, searchable console log; a badge for your own builds</li>
+                <li>Auto build on push, with a command in a terminal, an SSH session or the Run window, and a Jira step
+                    after a successful build</li>
+                <li>Jira: search with JQL or words, issues with comments and attachments, comment, reassign, create</li>
+            </ul>
         """.trimIndent()
     }
 

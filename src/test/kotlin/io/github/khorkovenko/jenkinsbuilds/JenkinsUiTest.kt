@@ -54,7 +54,7 @@ class JenkinsUiTest : BasePlatformTestCase() {
             javaClass.getResourceAsStream("/fixtures/server.json")!!.use { String(it.readAllBytes(), Charsets.UTF_8) },
         )
         panel.showTree(server)
-        assertEquals(listOf("all", "Portal", "Tools"), groups(tree))
+        assertEquals(listOf("In Progress", "all", "Portal", "Tools"), groups(tree))
 
         // A click on the star of the first job row marks it; a click on its name does not
         tree.setSize(900, 600)
@@ -73,8 +73,8 @@ class JenkinsUiTest : BasePlatformTestCase() {
             click(x)
             x += 3
         }
-        assertEquals(listOf("customersportal-2.2-dev"), settings.favouriteJobs)
-        assertEquals(listOf("Favourites", "all", "Portal", "Tools"), groups(tree))
+        assertEquals(listOf("customersportal-custom"), settings.favouriteJobs)
+        assertEquals(listOf("Favourites", "In Progress", "all", "Portal", "Tools"), groups(tree))
 
         settings.setFavouriteJob("tools/deploy scripts/feature%2Fone", true)
         settings.onlyFavouriteJobs = true
@@ -84,8 +84,127 @@ class JenkinsUiTest : BasePlatformTestCase() {
 
         settings.onlyFavouriteJobs = false
         panel.showTree(server)
-        assertEquals(4, groups(tree).size)
+        assertEquals(5, groups(tree).size)
     }
+
+    fun testFoldersCanBeHiddenAndBroughtBack() {
+        val settings = settings()
+        val panel = panel(ToolWindowAnchor.BOTTOM)
+        val tree = all(panel, com.intellij.ui.treeStructure.Tree::class.java).single()
+        val server = io.github.khorkovenko.jenkinsbuilds.api.JenkinsParser.parseServerTree(
+            javaClass.getResourceAsStream("/fixtures/server.json")!!.use { String(it.readAllBytes(), Charsets.UTF_8) },
+        )
+        panel.showTree(server)
+        assertEquals(listOf("In Progress", "all", "Portal", "Tools"), groups(tree))
+
+        // A view
+        panel.setFolderHidden("g:Portal", true)
+        assertEquals(listOf("In Progress", "all", "Tools"), groups(tree))
+        // A section of a view and a Jenkins folder inside the group of all jobs are hidden by their place in the tree
+        panel.setFolderHidden("g:all\u0000j:tools", true)
+        val all = tree.model.getChild(tree.model.root, 1)
+        assertEquals(4, tree.model.getChildCount(all))
+        // The same folder under another view stays
+        assertEquals(listOf("In Progress", "all", "Tools"), groups(tree))
+        assertEquals(1, tree.model.getChildCount(tree.model.getChild(tree.model.root, 2)))
+
+        // Shown again, greyed, while the hidden ones are asked for
+        settings.showHiddenFolders = true
+        panel.showTree(server)
+        assertEquals(listOf("In Progress", "all", "Portal", "Tools"), groups(tree))
+        assertEquals(5, tree.model.getChildCount(tree.model.getChild(tree.model.root, 1)))
+
+        settings.showHiddenFolders = false
+        panel.setFolderHidden("g:Portal", false)
+        assertEquals(listOf("In Progress", "all", "Portal", "Tools"), groups(tree))
+        assertEquals(listOf("g:all\u0000j:tools"), settings.hiddenFolders)
+
+        // The plugin's own groups can be hidden as well
+        panel.setFolderHidden(io.github.khorkovenko.jenkinsbuilds.ui.JobTree.RUNNING_KEY, true)
+        assertEquals(listOf("all", "Portal", "Tools"), groups(tree))
+    }
+
+    fun testAutoBuildDialogSavesEveryChange() {
+        val auto = io.github.khorkovenko.jenkinsbuilds.auto.AutoBuildSettings.getInstance(project)
+        val rule = io.github.khorkovenko.jenkinsbuilds.auto.AutoBuildRule()
+        rule.branch = "main"
+        rule.job = "x"
+        auto.replaceRules(listOf(rule))
+        auto.enabled = true
+        // The Git side is there: the test IDE has the Git plugin
+        assertNotNull(io.github.khorkovenko.jenkinsbuilds.auto.AutoBuildGit.of(project))
+
+        val dialog = io.github.khorkovenko.jenkinsbuilds.ui.AutoBuildDialog(project, null, "y")
+        try {
+            assertEquals(listOf("main"), dialog.currentRules().map { it.branch })
+            val table = dialog.ruleTable()
+            val d = io.github.khorkovenko.jenkinsbuilds.ui.AutoBuildDialog
+            assertEquals(1, table.rowCount)
+            assertEquals(true, table.getValueAt(0, d.ENABLED))
+            assertEquals("", table.getValueAt(0, d.COMMAND))
+            assertEquals(d.IMMEDIATELY, table.getValueAt(0, d.WHEN))
+            assertFalse(table.isCellEditable(0, d.RULE))
+            // The command and its time are edited in the table and can be emptied again
+            table.setValueAt("  echo done  ", 0, d.COMMAND)
+            table.setValueAt(d.AFTER_BUILD, 0, d.WHEN)
+            assertEquals("echo done", dialog.currentRules()[0].command)
+            assertTrue(dialog.currentRules()[0].commandAfterBuild)
+            table.setValueAt("", 0, d.COMMAND)
+            table.setValueAt(d.IMMEDIATELY, 0, d.WHEN)
+            assertEquals("", dialog.currentRules()[0].command)
+            assertFalse(dialog.currentRules()[0].commandAfterBuild)
+            table.setValueAt("git status", 0, d.COMMAND)
+            // Not applied: the text stays, but the rule runs no command
+            table.setValueAt(d.NOT_APPLIED, 0, d.WHEN)
+            assertEquals(d.NOT_APPLIED, table.getValueAt(0, d.WHEN))
+            assertTrue(dialog.currentRules()[0].commandOff)
+            assertEquals("git status", dialog.currentRules()[0].command)
+            table.setValueAt(d.AFTER_BUILD, 0, d.WHEN)
+            assertFalse(dialog.currentRules()[0].commandOff)
+            assertTrue(dialog.currentRules()[0].commandAfterBuild)
+            assertTrue(dialog.currentRules()[0].copy().also { it.commandOff = true }.copy().commandOff)
+            // Terminal or Run window, now or after the build
+            // Where the command goes is a drop-down of its own: a shell, an SSH session or the Run window
+            val targets = io.github.khorkovenko.jenkinsbuilds.auto.AutoBuildTargets
+            table.setValueAt("Run window", 0, d.WHERE)
+            assertEquals(targets.RUN, dialog.currentRules()[0].commandTarget)
+            assertFalse(dialog.currentRules()[0].commandInTerminal)
+            assertEquals("Run window", table.getValueAt(0, d.WHERE))
+            val shell = targets.shells().first()
+            table.setValueAt(shell.label, 0, d.WHERE)
+            assertEquals(shell.id, dialog.currentRules()[0].commandTarget)
+            assertEquals(shell.label, table.getValueAt(0, d.WHERE))
+            assertEquals(shell.id, dialog.currentRules()[0].copy().commandTarget)
+            // A choice that is not offered changes nothing
+            table.setValueAt("No such place", 0, d.WHERE)
+            assertEquals(shell.id, dialog.currentRules()[0].commandTarget)
+            table.setValueAt(d.AFTER_BUILD, 0, d.WHEN)
+            assertEquals(d.AFTER_BUILD, table.getValueAt(0, d.WHEN))
+            // Every change is saved at once: nothing is lost when the window is closed with its cross
+            assertEquals("git status", auto.rules()[0].command)
+            assertTrue(auto.rules()[0].commandAfterBuild)
+            table.setValueAt(false, 0, d.ENABLED)
+            assertFalse(auto.rules()[0].enabled)
+            assertFalse(auto.active())
+            // The Jira step is part of the rule and is saved with it
+            dialog.currentRules()[0].jiraEnabled = true
+            dialog.currentRules()[0].jiraIssue = "CP-372"
+            table.setValueAt(true, 0, d.ENABLED)
+            assertEquals("CP-372: comment the build link", table.getValueAt(0, d.JIRA))
+        } finally {
+            dialog.close(DialogWrapperExitCodeCancel)
+        }
+        assertTrue(auto.rules()[0].jiraEnabled)
+        assertEquals("CP-372", auto.rules()[0].jiraIssue)
+        // A push seen while the dialog was open is not forgotten when the dialog saves its older copy of the rule
+        auto.observe("", "main", "a", "a")
+        val stale = auto.rules().onEach { it.lastLocal = ""; it.lastRemote = "" }
+        auto.replaceRules(stale)
+        assertEquals("a", auto.rules()[0].lastRemote)
+        auto.replaceRules(emptyList())
+    }
+
+    private val DialogWrapperExitCodeCancel = com.intellij.openapi.ui.DialogWrapper.CANCEL_EXIT_CODE
 
     fun testToolWindowOpensSideBySideAtTheBottom() {
         settings()

@@ -1,0 +1,10 @@
+<idea-plugin>
+    <extensions defaultExtensionNs="com.intellij">
+        <projectService serviceInterface="io.github.khorkovenko.jenkinsbuilds.auto.AutoBuildGit"
+                        serviceImplementation="io.github.khorkovenko.jenkinsbuilds.auto.AutoBuildGitImpl"/>
+    </extensions>
+    <projectListeners>
+        <listener class="io.github.khorkovenko.jenkinsbuilds.auto.AutoBuildRepoListener"
+                  topic="git4idea.repo.GitRepositoryChangeListener"/>
+    </projectListeners>
+</idea-plugin>

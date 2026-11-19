@@ -162,6 +162,7 @@ object JenkinsParser {
         duration = o.long("duration"),
         estimatedDuration = o.long("estimatedDuration"),
         startedBy = startedBy(o.objects("actions")),
+        startedById = causes(o.objects("actions")).firstNotNullOfOrNull { c -> c.str("userId")?.takeIf { it.isNotBlank() } },
     )
 
     private fun causes(actions: List<JsonObject>): List<JsonObject> = actions.flatMap { it.objects("causes") }

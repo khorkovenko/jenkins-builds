@@ -11,6 +11,7 @@ object ConsoleText {
             "marked build as failure|did not succeed",
     )
     private val WARNING = Regex("\\b(WARNING|WARN|UNSTABLE|ABORTED)\\b|\\bwarning:|^Skipped\\b|\\bdeprecated\\b", RegexOption.IGNORE_CASE)
+    private val LOG_LEVEL = Regex("^\\[(INFO|DEBUG|TRACE)] ?", RegexOption.IGNORE_CASE)
     private val STEP = Regex("^(\\[Pipeline]|> Task |\\+ |\\$ |> git |Started by |Rebuilds build |Building |Checking out |\\[[\\w .-]+] )")
 
     /** The colour class of one line of the log. */
@@ -19,6 +20,8 @@ object ConsoleText {
         SUCCESS.containsMatchIn(line) -> Kind.SUCCESS
         ERROR.containsMatchIn(line) -> Kind.ERROR
         WARNING.containsMatchIn(line) -> Kind.WARNING
+        // The level prefix of Maven and other loggers is on nearly every line: it is no build step
+        LOG_LEVEL.containsMatchIn(line) -> Kind.NORMAL
         STEP.containsMatchIn(line) -> Kind.STEP
         else -> Kind.NORMAL
     }

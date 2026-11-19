@@ -107,6 +107,8 @@ class JenkinsParserTest {
         assertEquals("khorkovenko", job.builds[1].startedBy)
         assertEquals("#200", job.builds[2].title)
         assertEquals("timer", job.builds[2].startedBy)
+        assertEquals("khorkovenko", job.builds[0].startedById)
+        assertNull(job.builds[2].startedById)
     }
 
     @Test
@@ -280,6 +282,9 @@ class JenkinsParserTest {
         assertEquals(ConsoleKind.NORMAL, k.kind("Collecting metadata..."))
         assertEquals(ConsoleKind.NORMAL, k.kind("Sending e-mails to: someone@example.test"))
         assertEquals(ConsoleKind.NORMAL, k.kind(""))
+        assertEquals(ConsoleKind.NORMAL, k.kind("[INFO] Building customersportal 2.2"))
+        assertEquals(ConsoleKind.SUCCESS, k.kind("[INFO] BUILD SUCCESS"))
+        assertEquals(ConsoleKind.ERROR, k.kind("[ERROR] Failed to execute goal"))
     }
 
     @Test
@@ -297,6 +302,61 @@ class JenkinsParserTest {
         assertTrue(k.matches(text, "absent").isEmpty())
         assertEquals(2, k.matches("aaaa", "aa").size)
         assertEquals(1, k.matches("aaaa", "a", limit = 1).size)
+    }
+
+    @Test
+    fun aPushIsToldFromFetchPullAndCommit() {
+        val logic = io.github.khorkovenko.jenkinsbuilds.auto.AutoBuildLogic
+        // Push: the remote branch arrives at the commit the local branch already was at
+        assertTrue(logic.pushed("b", "a", "b", "b"))
+        // First push of a new branch
+        assertTrue(logic.pushed("b", "", "b", "b"))
+        // Commit: only the local branch moved
+        assertFalse(logic.pushed("a", "a", "b", "a"))
+        // Fetch: the remote branch moved away
+        assertFalse(logic.pushed("a", "a", "a", "c"))
+        // Pull or fast-forward: both moved, the local one too
+        assertFalse(logic.pushed("a", "a", "c", "c"))
+        // Nothing moved
+        assertFalse(logic.pushed("b", "b", "b", "b"))
+        // Seen for the first time: nothing is known yet
+        assertFalse(logic.pushed("", "", "b", "b"))
+        // The branch has no remote counterpart, or is gone
+        assertFalse(logic.pushed("b", "", "b", null))
+        assertFalse(logic.pushed("b", "a", null, "b"))
+    }
+
+    @Test
+    fun autoBuildRulesFireOncePerPush() {
+        val settings = io.github.khorkovenko.jenkinsbuilds.auto.AutoBuildSettings()
+        val rule = io.github.khorkovenko.jenkinsbuilds.auto.AutoBuildRule()
+        rule.branch = "cp/2.2/dev"
+        rule.root = "/repo"
+        rule.job = "customersportal-custom"
+        rule.parameterized = true
+        rule.params = mutableListOf("Branch_Selector=origin/cp/2.2/dev", "NOTE=a=b")
+        rule.lastLocal = "a"
+        rule.lastRemote = "a"
+        settings.replaceRules(listOf(rule))
+        assertEquals(listOf("Branch_Selector" to "origin/cp/2.2/dev", "NOTE" to "a=b"), rule.parameters())
+        assertTrue(rule.describe().contains("cp/2.2/dev") && rule.describe().contains("customersportal-custom"))
+        assertEquals(listOf("cp/2.2/dev"), settings.branchesWatched("/repo"))
+        assertTrue(settings.branchesWatched("/other").isEmpty())
+
+        assertTrue("a commit is no push", settings.observe("/repo", "cp/2.2/dev", "b", "a").isEmpty())
+        assertTrue("another repository", settings.observe("/other", "cp/2.2/dev", "b", "b").isEmpty())
+        assertEquals(listOf("customersportal-custom"), settings.observe("/repo", "cp/2.2/dev", "b", "b").map { it.job })
+        assertTrue("the same state again builds nothing", settings.observe("/repo", "cp/2.2/dev", "b", "b").isEmpty())
+
+        // Switched off: the push is still recorded, so switching on later does not build old pushes
+        settings.enabled = false
+        settings.observe("/repo", "cp/2.2/dev", "c", "b")
+        assertTrue(settings.observe("/repo", "cp/2.2/dev", "c", "c").isEmpty())
+        settings.enabled = true
+        assertTrue(settings.observe("/repo", "cp/2.2/dev", "c", "c").isEmpty())
+        assertTrue(settings.active())
+        settings.replaceRules(settings.rules().onEach { it.enabled = false })
+        assertFalse(settings.active())
     }
 
     @Test

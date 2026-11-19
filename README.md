@@ -1,13 +1,22 @@
 # Jenkins Builds
 
-An IntelliJ Platform plugin that is a Jenkins client in a tool window: browse jobs, start and stop builds, read build details and the console log. It works in IntelliJ IDEA and the other JetBrains IDEs, version 2025.3 or later.
+An IntelliJ Platform plugin that puts Jenkins and Jira into one tool window. Browse jobs, start and follow builds, let a push start a build, run a command when it is done and update the Jira issue. It works in IntelliJ IDEA and the other JetBrains IDEs, version 2025.3 or later.
 
 It was written for corporate servers where other Jenkins plugins fail to connect: an internal address, a self-signed or company certificate, CSRF protection, and a login that has to survive an IDE restart.
+
+In short:
+
+- **Jenkins:** jobs as Jenkins groups them, builds, parameterized builds with branch selectors, build details, artifacts and a console log that follows the build.
+- **Auto build on push:** a rule builds a job when you push a branch, then runs a command in a terminal, an SSH session or the Run window, and comments and reassigns a Jira issue after a successful build.
+- **Jira:** search with JQL or plain words, read an issue with its comments and attachments, comment, reassign, create.
+
+Needs the bundled Terminal plugin. Git (for the auto build) and the SSH plugin of the IDE (for SSH sessions) are optional.
 
 ## Features
 
 - **Jobs grouped the way Jenkins shows them:** views, the sections of sectioned views, folders and multibranch projects, with a status icon and the last build. The first group holds every job of the server with its folders; the views follow. A filter field narrows the tree by job name.
 - **Favourite jobs:** every job has a star beside its name: click ☆ to mark it, ★ to unmark it (or right-click the job | Favourite). Favourites are listed again in a **Favourites** group at the top of the tree. The star button on the toolbar, **Show Favourites Only**, hides everything else.
+- **Hide folders:** right-click a view, a section or a folder | **Hide Folder** takes it out of the tree. The eye button on the toolbar, **Show Hidden Folders**, shows the hidden ones again, greyed and marked "hidden"; right-click one | **Show Folder Again** brings it back for good. A folder is hidden by its place in the tree, so the same folder under another view stays.
 - **Expand All / Collapse All** on the toolbar open or close every view and folder.
 - **Favourite branches:** in the build form, a branch selector has a **★ Favourite** checkbox for the value in the field. Favourite values are listed first, are offered even when the server list cannot be loaded, and **Only favourites** shortens the list to them. They are shared by all jobs.
 - **Builds of a job:** build name (such as `C0.0.202`) and number, result, start time, duration and who started it. A running build and a queued one are marked.
@@ -23,11 +32,30 @@ It was written for corporate servers where other Jenkins plugins fail to connect
 - **Open in Browser** and **Copy URL** for the selected build or job.
 - **Refresh while something runs:** the selected job, its queue items and the selected build are loaded again every few seconds while a build runs or waits. Nothing is polled when all is idle or the tool window is hidden.
 
+- **Auto build on push:** the **Auto** button (lightning) on the toolbar opens a list of rules "when this branch of the project is pushed, build that Jenkins job". Press + and choose: the branch of the project whose push starts the build (a drop-down); the Jenkins job, in the same tree as in the tool window (favourites, all jobs with folders, views, with a filter); and, only for a job with a branch selector such as a `-custom` job, the **branch to build** from a drop-down of the branches the server offers, favourite ones first. The branch to build is preset to the remote name of your branch (`origin/<branch>`) when the job can build it. The other parameters of the job keep their defaults. Each rule has a checkbox, and one checkbox switches the whole feature; the button looks pressed while it is on. A push from the IDE or from a terminal is noticed while the project is open; a fetch, pull or commit does not start a build. The rules are kept per project in the workspace file. Needs the bundled Git plugin.
+- **A command per auto-build rule:** the rules are a table with editable columns. **Command** takes a command (click the cell, type or paste, clear it to run nothing). **Run the command** chooses when: *Immediately* (as soon as the push is seen), *After the build has finished* (when the build this rule started has ended, whatever its result) or *Not applied* (the text is kept but nothing is run). **In** chooses where, and a new tab is opened every time: one of the shells of the machine as the Terminal tool window offers them (*Windows PowerShell*, *Command Prompt*, *Git Bash*), *SSH: &lt;name&gt;* for each entry of Settings | Tools | SSH Configurations (the session is opened with the saved login and the command is typed into it once it is connected), or *Run window* (a process of its own through `cmd.exe /c` on Windows and `/bin/sh -c` elsewhere, in the folder of the repository). The names `JENKINS_JOB`, `JENKINS_BRANCH`, `JENKINS_URL` and, after the build, `JENKINS_BUILD_NUMBER`, `JENKINS_BUILD_RESULT` (`SUCCESS`, `FAILURE`, ...) and `JENKINS_BUILD_URL` can be used as `$NAME`, `${NAME}` or `%NAME%`: in a terminal or an SSH session their values are written into the command before it is typed, in the Run window they are environment variables. The command is stored as plain text in the workspace file of the project, so do not put a password into it.
+- **Jira after a successful build:** the last column of the rules table. Double-click it (or press the pencil button) to choose an issue (type its key, or press Choose... to search Jira with a query and pick it from a list), a new assignee and a comment. When the build of the rule ends with SUCCESS, the comment is added to the issue with the link to the Jenkins build on a line of its own, and the issue is reassigned if an assignee is set. The issue can be left empty: then the key in the branch name is used (`cp/2.2/CP-372` gives `CP-372`). A failed build changes nothing in Jira.
+- **In Progress group:** jobs that are building right now are listed again in an **In Progress** group near the top of the tree, with a spinner. It appears and opens by itself and goes away when nothing is building.
+- **Seeing that the auto build is on:** the Auto button is a solid orange square with a white lightning while it is on and a grey outline while it is off, and the tool window button carries a small orange lightning in its lower left corner.
 - **Badge on the tool window button:** blue while a build of yours runs or waits in the queue (started from the plugin, or by your user in a job you have open), also while the tool window is hidden. When one of them finishes unseen the badge turns green (red if it did not succeed) and a notification appears; opening the tool window clears it.
 - **Coloured, searchable console:** errors and stack traces are red, warnings yellow, `Finished: SUCCESS` and `BUILD SUCCESSFUL` green, build steps blue. The search field above the log marks every match; Enter goes to the next one, Shift+Enter to the previous.
 - **Adaptive tool window:** docked at the bottom, the jobs, the builds and the build details stand side by side; docked left or right (or whenever the window is taller than wide), they are stacked. The divider positions are remembered separately for both layouts.
 
 Open it from **View | Tool Windows | Jenkins Builds** (docked at the bottom by default; move it with the tool window's ⋮ menu | Move To). The plugin has no default shortcuts.
+
+## Jira
+
+The tool window has two tabs in its title bar: **Jenkins** and **Jira**.
+
+- **Login:** Settings | Tools | Jenkins Builds has a **Jira** tab beside the Jenkins one: server address, user name, password or token, and Test Connection. Jira Cloud: your e-mail and an API token. Jira Server or Data Center: your user name and password, or leave the user name empty and enter a personal access token. The secret is kept in the IDE password store.
+- **One field, like the search page of Jira:** type a query (`assignee = khorkovenko`, `project = CP AND status = Open ORDER BY updated DESC`) and press Enter. Plain words work too: while you type they narrow the list that is shown, and Enter searches Jira for them; an issue key finds that issue. An empty field lists your open issues.
+- **Lock:** the lock button on the toolbar freezes the text of the field: it cannot be changed and is still there, and searched again, after the IDE is restarted. Unlock to edit it.
+- **An issue:** double-click (or Enter) opens it with its fields, description, attachments and all comments. Every comment is a block of its own under a title bar with the author, the time and its number. There you can add a comment and reassign the issue; the user is found by typing a part of the name. **Refresh** in the top right corner reads the issue again, so new comments appear without closing the window.
+- **Pictures, videos and files:** attachments are listed as links, and a picture or video that a comment or the description embeds is a link in that place. A click downloads the file to your Downloads folder with the saved login (an existing file is not overwritten) and a notification offers to show it in its folder. Web addresses in the text open in the browser.
+- **New issue:** the + button asks for project, issue type, summary and description.
+- Open in Browser and Copy Key for the selected issue.
+
+The plugin uses version 2 of the Jira REST API, which Jira Cloud and Jira Server both understand. It was written against that public API only.
 
 ## Setting up the connection
 
