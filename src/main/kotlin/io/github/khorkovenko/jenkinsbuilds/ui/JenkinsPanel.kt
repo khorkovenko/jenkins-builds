@@ -171,6 +171,15 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
     private val autoBadge: Icon = IconLoader.getIcon("/icons/autoBadge.svg", JenkinsPanel::class.java)
     private val autoOnIcon: Icon = IconLoader.getIcon("/icons/autoOn.svg", JenkinsPanel::class.java)
     private val autoOffIcon: Icon = IconLoader.getIcon("/icons/autoOff.svg", JenkinsPanel::class.java)
+    private val clearFavouritesIcon: Icon = IconLoader.getIcon("/icons/clearFavourites.svg", JenkinsPanel::class.java)
+
+    // Declared before the init block: the selection listeners set them while the first tree is filled
+    /** The selected job and build, for the menus, which are filled on a background thread. */
+    @Volatile private var menuJob: String? = null
+    @Volatile private var menuBuild: Pair<String, Int>? = null
+
+    /** Answers read for the menus: job lists for a short while, finished builds for good. */
+    private val menuCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Any>>()
 
     /** What the button of the tool window shows now: the colour of the status dot and whether the auto build is on. */
     private var shownBadge: String? = null
@@ -290,6 +299,8 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
                 rebuildTree()
                 status(if (it) "Showing the favourite jobs only" else "Showing all jobs")
             })
+            add(action("Remove All Favourites", "Unstar every favourite job", clearFavouritesIcon,
+                { JenkinsSettings.getInstance().favouriteJobs.isNotEmpty() }) { clearFavourites() })
             add(toggle("Show Hidden Folders", "Show the folders you have hidden, greyed, so they can be brought back",
                 AllIcons.Actions.ToggleVisibility, { true }, { JenkinsSettings.getInstance().showHiddenFolders }) {
                 JenkinsSettings.getInstance().showHiddenFolders = it
@@ -322,7 +333,28 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
             })
             add(action("Jenkins Settings", "Server address and login", AllIcons.General.Settings, { true }) { openSettings() })
         }
-        PopupHandler.installPopupMenu(jobTree, DefaultActionGroup(favouriteAction, createHideAction()), "JenkinsBuilds.JobPopup")
+        // First block: the artifact links of the job's last (successful) build, mine or anybody's
+        val jobPopup = DefaultActionGroup().apply {
+            Pick.entries.forEach { add(createPickGroup(it)) }
+            add(Separator.getInstance())
+            add(action("Open in Browser", "Open the selected job in the browser", AllIcons.General.Web, { selectedTreeJob() != null }) {
+                val base = JenkinsSettings.getInstance().url
+                selectedTreeJob()?.let { if (base.isNotEmpty()) BrowserUtil.browse(JenkinsUrls.jobUrl(base, it.fullName)) }
+            })
+            add(favouriteAction)
+            add(createHideAction())
+        }
+        PopupHandler.installPopupMenu(jobTree, jobPopup, "JenkinsBuilds.JobPopup")
+        PopupHandler.installPopupMenu(buildsTable, DefaultActionGroup(createRowLinksGroup()), "JenkinsBuilds.BuildPopup")
+        jobTree.addTreeSelectionListener { menuJob = selectedTreeJob()?.fullName }
+        // A right click picks the build under the mouse first, so its menu is about that build
+        buildsTable.addMouseListener(object : MouseAdapter() {
+            override fun mousePressed(e: MouseEvent) {
+                if (!javax.swing.SwingUtilities.isRightMouseButton(e)) return
+                val row = buildsTable.rowAtPoint(e.point)
+                if (row >= 0 && !buildsTable.isRowSelected(row)) buildsTable.selectionModel.setSelectionInterval(row, row)
+            }
+        })
         val toolbar = ActionManager.getInstance().createActionToolbar("JenkinsBuilds.Toolbar", group, true)
         toolbar.targetComponent = this
         setToolbar(toolbar.component)
@@ -382,6 +414,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
         buildsTable.columnModel.getColumn(3).preferredWidth = JBUI.scale(90)
         buildsTable.columnModel.getColumn(4).preferredWidth = JBUI.scale(120)
         buildsTable.selectionModel.addListSelectionListener {
+            menuBuild = (selectedRow() as? Row.Build)?.let { row -> currentJob?.let { job -> job.fullName to row.ref.number } }
             if (!updatingTable && !it.valueIsAdjusting) onRowSelected()
         }
 
@@ -575,6 +608,136 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
             { selectedTreeJob() != null },
             { selectedTreeJob()?.let { JenkinsSettings.getInstance().isFavouriteJob(it.fullName) } == true },
         ) { favourite -> selectedTreeJob()?.let { setFavourite(it, favourite) } }
+    }
+
+    private fun clearFavourites() {
+        val settings = JenkinsSettings.getInstance()
+        val favourites = settings.favouriteJobs.toList()
+        if (favourites.isEmpty()) return
+        val what = if (favourites.size == 1) "'${favourites[0]}'" else "all ${favourites.size} favourite jobs"
+        if (Messages.showYesNoDialog(project, "Remove $what from the favourites? The jobs themselves stay.",
+                "Jenkins Builds", Messages.getQuestionIcon()) != Messages.YES) return
+        favourites.forEach { settings.setFavouriteJob(it, false) }
+        rebuildTree()
+        status("Removed ${favourites.size} job" + (if (favourites.size == 1) "" else "s") + " from the favourites")
+    }
+
+    // ---- artifact links in the menus ----------------------------------------------------------------------------------
+    // The menus are filled on a background thread (ActionUpdateThread.BGT), so they read the server there and never
+    // touch Swing: the selected job and build are mirrored into these fields by the selection listeners.
+
+    /** Which build of a job a menu of the job tree is about. */
+    private enum class Pick(val label: String, val mine: Boolean, val successful: Boolean) {
+        MY_LAST("My Last Build", true, false),
+        MY_SUCCESSFUL("My Last Successful Build", true, true),
+        LAST("Last Build", false, false),
+        SUCCESSFUL("Last Successful Build", false, true),
+    }
+
+    private fun menuJobDetails(client: JenkinsClient, fullName: String): JobDetails {
+        val key = "job\n$fullName"
+        menuCache[key]?.let { (time, value) -> if (System.currentTimeMillis() - time < MENU_CACHE_MILLIS) return value as JobDetails }
+        return client.loadJob(fullName, JenkinsSettings.getInstance().buildsLimit).also { menuCache[key] = System.currentTimeMillis() to it }
+    }
+
+    private fun menuBuildDetails(client: JenkinsClient, fullName: String, number: Int): BuildDetails {
+        val key = "build\n$fullName\n$number"
+        menuCache[key]?.let { (_, value) -> return value as BuildDetails }
+        val details = client.loadBuild(fullName, number)
+        if (!details.building) menuCache[key] = System.currentTimeMillis() to details // a running build may still add artifacts
+        return details
+    }
+
+    /** The finished build [pick] means among [builds] (newest first), or null. */
+    private fun choose(builds: List<BuildRef>, pick: Pick, me: String): BuildRef? = builds.firstOrNull { b ->
+        !b.building &&
+            (!pick.mine || (b.startedById ?: b.startedBy).equals(me, ignoreCase = true) || b.startedBy.equals(me, ignoreCase = true)) &&
+            (!pick.successful || b.result == "SUCCESS")
+    }
+
+    /** A grey line in a menu that only tells something. */
+    private fun info(text: String): AnAction = object : DumbAwareAction(text) {
+        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+        override fun update(e: AnActionEvent) { e.presentation.isEnabled = false }
+        override fun actionPerformed(e: AnActionEvent) {}
+    }
+
+    private fun copyAction(text: String, description: String, value: String, icon: Icon? = null): AnAction =
+        object : DumbAwareAction(text, description, icon) {
+            override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+            override fun actionPerformed(e: AnActionEvent) { if (!disposed) copy(value) }
+        }
+
+    /** "Copy Link: ROOT-C0.0.214-plain.war" for each artifact of the build, then all of them and the build page in the browser. */
+    private fun linkActions(fullName: String, details: BuildDetails): List<AnAction> {
+        val base = JenkinsSettings.getInstance().url
+        val urls = details.artifacts.map { it to JenkinsUrls.artifactUrl(base, fullName, details.number, it.relativePath) }
+        return buildList {
+            if (urls.isEmpty()) add(info(if (details.building) "Still running: no artifacts yet" else "No artifacts"))
+            urls.forEach { (artifact, url) -> add(copyAction("Copy Link: ${artifact.fileName}", url, url, AllIcons.Actions.Copy)) }
+            if (urls.size > 1) add(copyAction("Copy All ${urls.size} Artifact Links", "One link per line", urls.joinToString("\n") { it.second }))
+            add(Separator.getInstance())
+            val buildUrl = JenkinsUrls.buildUrl(base, fullName, details.number)
+            add(object : DumbAwareAction("Open in Browser", buildUrl, AllIcons.General.Web) {
+                override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+                override fun actionPerformed(e: AnActionEvent) { if (!disposed) BrowserUtil.browse(buildUrl) }
+            })
+        }
+    }
+
+    /** The line shown for a menu that could not read the server. */
+    private fun failedInfo(e: Exception): AnAction {
+        if (e is ProcessCanceledException) throw e
+        return info("Could not load: " + message(e).take(80))
+    }
+
+    /** A submenu of the job tree with the artifact links of the build [pick] means for the selected job. */
+    private fun createPickGroup(pick: Pick): AnAction = object : com.intellij.openapi.actionSystem.ActionGroup(pick.label, true) {
+        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+
+        override fun update(e: AnActionEvent) {
+            val job = if (disposed) null else menuJob
+            e.presentation.isEnabledAndVisible = job != null
+            if (job == null) return
+            // The build beside the label once the job's builds are known (they are read when a submenu opens)
+            val cached = menuCache["job\n$job"]?.second as? JobDetails
+            val build = cached?.let { choose(it.builds, pick, JenkinsSettings.getInstance().username) }
+            e.presentation.text = if (build != null) "${pick.label}  ·  ${build.title}" else pick.label
+        }
+
+        override fun getChildren(e: AnActionEvent?): Array<AnAction> {
+            if (e == null || disposed) return emptyArray()
+            val job = menuJob ?: return emptyArray()
+            val me = JenkinsSettings.getInstance().username
+            if (pick.mine && me.isEmpty()) return arrayOf(info("Set your user name in the Jenkins settings first"))
+            return try {
+                val client = JenkinsSettings.getInstance().client()
+                val builds = menuJobDetails(client, job).builds
+                val build = choose(builds, pick, me)
+                    ?: return arrayOf(info("No such build among the last ${builds.size} builds"))
+                val details = menuBuildDetails(client, job, build.number)
+                val started = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(java.util.Date(details.timestamp))
+                (listOf(info("${details.title}  #${details.number}  ·  ${details.result ?: "?"}  ·  $started"), Separator.getInstance()) +
+                    linkActions(job, details)).toTypedArray()
+            } catch (ex: Exception) {
+                arrayOf(failedInfo(ex))
+            }
+        }
+    }
+
+    /** The menu of a row in the builds table: the links of that build's artifacts. */
+    private fun createRowLinksGroup(): AnAction = object : com.intellij.openapi.actionSystem.ActionGroup() {
+        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+
+        override fun getChildren(e: AnActionEvent?): Array<AnAction> {
+            if (e == null || disposed) return emptyArray()
+            val (job, number) = menuBuild ?: return arrayOf(info("Select a build"))
+            return try {
+                linkActions(job, menuBuildDetails(JenkinsSettings.getInstance().client(), job, number)).toTypedArray()
+            } catch (ex: Exception) {
+                arrayOf(failedInfo(ex))
+            }
+        }
     }
 
     /** The key of the folder, view or section the tree selection points at; jobs give null. */
@@ -1507,6 +1670,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
         private const val CONSOLE_POLL_MILLIS = 1500L
         private const val MAX_SEARCH_MARKS = 2000
         private const val MAX_CONSOLE_RETRIES = 5
+        private const val MENU_CACHE_MILLIS = 20_000L
 
         private fun consoleType(name: String, color: JBColor): ConsoleViewContentType =
             ConsoleViewContentType(name, TextAttributes(color, null, null, null, Font.PLAIN))

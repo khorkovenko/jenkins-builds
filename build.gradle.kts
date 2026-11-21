@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "io.github.khorkovenko.jenkinsbuilds"
-version = "1.0.0"
+version = "1.0.1"
 
 repositories {
     mavenCentral()
@@ -40,6 +40,14 @@ intellijPlatform {
             untilBuild = provider { null } // no upper bound
         }
         changeNotes = """
+            <p><b>1.0.1</b></p>
+            <ul>
+                <li>Remove All Favourites on the toolbar unstars every favourite job.</li>
+                <li>The menu of a job starts with My Last Build, My Last Successful Build, Last Build and Last Successful
+                    Build: each lists the artifacts of that build to copy their links, and opens the build in the browser.</li>
+                <li>The menu of a job opens the job in the browser.</li>
+                <li>The menu of a build in the builds list copies the links of that build's artifacts and opens the build in the browser.</li>
+            </ul>
             <p><b>1.0.0</b>: first release.</p>
             <ul>
                 <li>Jenkins: jobs by view, section and folder with favourites, hidden folders and a group of running jobs;
