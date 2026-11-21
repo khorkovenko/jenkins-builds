@@ -634,18 +634,52 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
         SUCCESSFUL("Last Successful Build", false, true),
     }
 
-    private fun menuJobDetails(client: JenkinsClient, fullName: String): JobDetails {
-        val key = "job\n$fullName"
-        menuCache[key]?.let { (time, value) -> if (System.currentTimeMillis() - time < MENU_CACHE_MILLIS) return value as JobDetails }
-        return client.loadJob(fullName, JenkinsSettings.getInstance().buildsLimit).also { menuCache[key] = System.currentTimeMillis() to it }
+    /** Server reads a menu is waiting for, by cache key; menus that open again meanwhile wait for the same read. */
+    private val menuPending = java.util.concurrent.ConcurrentHashMap<String, Future<*>>()
+
+    /**
+     * Runs [read] on a pooled thread and waits for it. Menus are filled inside a read action, where the network must
+     * not be used: the read happens on another thread, and the wait checks for cancellation, so a write action that
+     * comes along cancels the menu update (the IDE then retries it and finds the same read still going).
+     */
+    private fun <T> offReadAction(key: String, read: () -> T): T {
+        @Suppress("UNCHECKED_CAST")
+        val future = menuPending.computeIfAbsent(key) {
+            AppExecutorUtil.getAppExecutorService().submit(java.util.concurrent.Callable { read() })
+        } as Future<T>
+        while (true) {
+            ProgressManager.checkCanceled()
+            try {
+                return future.get(20, TimeUnit.MILLISECONDS).also { menuPending.remove(key, future) }
+            } catch (_: java.util.concurrent.TimeoutException) {
+                // still reading
+            } catch (e: java.util.concurrent.ExecutionException) {
+                menuPending.remove(key, future)
+                throw (e.cause as? Exception) ?: e
+            }
+        }
     }
 
-    private fun menuBuildDetails(client: JenkinsClient, fullName: String, number: Int): BuildDetails {
+    private fun menuJobDetails(fullName: String): JobDetails {
+        val key = "job\n$fullName"
+        menuCache[key]?.let { (time, value) -> if (System.currentTimeMillis() - time < MENU_CACHE_MILLIS) return value as JobDetails }
+        return offReadAction(key) {
+            JenkinsSettings.getInstance().client().loadJob(fullName, JenkinsSettings.getInstance().buildsLimit)
+                .also { menuCache[key] = System.currentTimeMillis() to it }
+        }
+    }
+
+    private fun menuBuildDetails(fullName: String, number: Int): BuildDetails {
         val key = "build\n$fullName\n$number"
         menuCache[key]?.let { (_, value) -> return value as BuildDetails }
-        val details = client.loadBuild(fullName, number)
-        if (!details.building) menuCache[key] = System.currentTimeMillis() to details // a running build may still add artifacts
-        return details
+        return offReadAction(key) {
+            JenkinsSettings.getInstance().client().loadBuild(fullName, number).also { rememberForMenus(fullName, it) }
+        }
+    }
+
+    /** Finished builds never change: keep them for the menus (a running one may still add artifacts). */
+    private fun rememberForMenus(fullName: String, details: BuildDetails) {
+        if (!details.building) menuCache["build\n$fullName\n${details.number}"] = System.currentTimeMillis() to details
     }
 
     /** The finished build [pick] means among [builds] (newest first), or null. */
@@ -678,11 +712,52 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
             if (urls.size > 1) add(copyAction("Copy All ${urls.size} Artifact Links", "One link per line", urls.joinToString("\n") { it.second }))
             add(Separator.getInstance())
             val buildUrl = JenkinsUrls.buildUrl(base, fullName, details.number)
+            add(object : DumbAwareAction("Copy Log Output", "Copy the whole console log of ${details.title}", AllIcons.Debugger.Console) {
+                override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+                override fun actionPerformed(e: AnActionEvent) { if (!disposed) copyLog(fullName, details.number, details.title) }
+            })
             add(object : DumbAwareAction("Open in Browser", buildUrl, AllIcons.General.Web) {
                 override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
                 override fun actionPerformed(e: AnActionEvent) { if (!disposed) BrowserUtil.browse(buildUrl) }
             })
         }
+    }
+
+    /** Reads the whole console log of a build in the background and puts it on the clipboard. */
+    private fun copyLog(fullName: String, number: Int, title: String) {
+        status("Reading the log of $title ...")
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Reading the Jenkins log of $title", true) {
+            private var text: String? = null
+
+            override fun run(indicator: ProgressIndicator) {
+                val client = JenkinsSettings.getInstance().client()
+                val log = StringBuilder()
+                var start = 0L
+                // A finished build sends its log in one piece; a running one sends what it has, then nothing new
+                repeat(MAX_LOG_PIECES) {
+                    indicator.checkCanceled()
+                    val chunk = client.console(fullName, number, start)
+                    log.append(chunk.text)
+                    if (!chunk.more || chunk.text.isEmpty() || chunk.nextStart <= start) {
+                        text = log.toString()
+                        return
+                    }
+                    start = chunk.nextStart
+                }
+                text = log.toString()
+            }
+
+            override fun onSuccess() {
+                if (disposed) return
+                val log = text ?: return
+                CopyPasteManager.getInstance().setContents(StringSelection(log))
+                status("Copied the log of $title: ${log.lineSequence().count()} lines")
+            }
+
+            override fun onThrowable(error: Throwable) {
+                if (!disposed) showError(error)
+            }
+        })
     }
 
     /** The line shown for a menu that could not read the server. */
@@ -711,11 +786,10 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
             val me = JenkinsSettings.getInstance().username
             if (pick.mine && me.isEmpty()) return arrayOf(info("Set your user name in the Jenkins settings first"))
             return try {
-                val client = JenkinsSettings.getInstance().client()
-                val builds = menuJobDetails(client, job).builds
+                val builds = menuJobDetails(job).builds
                 val build = choose(builds, pick, me)
                     ?: return arrayOf(info("No such build among the last ${builds.size} builds"))
-                val details = menuBuildDetails(client, job, build.number)
+                val details = menuBuildDetails(job, build.number)
                 val started = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(java.util.Date(details.timestamp))
                 (listOf(info("${details.title}  #${details.number}  ·  ${details.result ?: "?"}  ·  $started"), Separator.getInstance()) +
                     linkActions(job, details)).toTypedArray()
@@ -733,7 +807,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
             if (e == null || disposed) return emptyArray()
             val (job, number) = menuBuild ?: return arrayOf(info("Select a build"))
             return try {
-                linkActions(job, menuBuildDetails(JenkinsSettings.getInstance().client(), job, number)).toTypedArray()
+                linkActions(job, menuBuildDetails(job, number)).toTypedArray()
             } catch (ex: Exception) {
                 arrayOf(failedInfo(ex))
             }
@@ -1050,6 +1124,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
             if (currentJob?.fullName != job.fullName) return@load
             val wasRunning = jobDetails?.builds?.any { it.building } == true
             jobDetails = details
+            menuCache["job\n${job.fullName}"] = System.currentTimeMillis() to details // the menus need not ask again
             // Builds I started elsewhere (in the browser, say) count as mine too
             val me = JenkinsSettings.getInstance().username
             if (me.isNotEmpty()) {
@@ -1154,6 +1229,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
             val first = buildDetails == null
             val finished = buildDetails?.building == true && !details.building
             buildDetails = details
+            rememberForMenus(job.fullName, details)
             val scroll = summaryPane.visibleRect
             summaryPane.text = Format.summaryHtml(job.fullName, details)
             if (first) summaryPane.caretPosition = 0 else ApplicationManager.getApplication().invokeLater { summaryPane.scrollRectToVisible(scroll) }
@@ -1671,6 +1747,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
         private const val MAX_SEARCH_MARKS = 2000
         private const val MAX_CONSOLE_RETRIES = 5
         private const val MENU_CACHE_MILLIS = 20_000L
+        private const val MAX_LOG_PIECES = 200
 
         private fun consoleType(name: String, color: JBColor): ConsoleViewContentType =
             ConsoleViewContentType(name, TextAttributes(color, null, null, null, Font.PLAIN))

@@ -46,6 +46,7 @@ intellijPlatform {
                 <li>The menu of a job starts with My Last Build, My Last Successful Build, Last Build and Last Successful
                     Build: each lists the artifacts of that build to copy their links, and opens the build in the browser.</li>
                 <li>The menu of a job opens the job in the browser.</li>
+                <li>Copy Log Output in the build menus copies the whole console log of that build.</li>
                 <li>The menu of a build in the builds list copies the links of that build's artifacts and opens the build in the browser.</li>
             </ul>
             <p><b>1.0.0</b>: first release.</p>
