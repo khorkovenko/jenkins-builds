@@ -256,7 +256,7 @@ class JiraIssueDialog(
         server.run({ server.download(attachment, target) }) { result ->
             result.onSuccess {
                 if (!isDisposed) status("Saved ${target.path}")
-                val notification = NotificationGroupManager.getInstance().getNotificationGroup("Jenkins Builds")
+                val notification = NotificationGroupManager.getInstance().getNotificationGroup("JJ Tracker")
                     .createNotification("Jira attachment", "${target.name} saved to ${target.parent}", NotificationType.INFORMATION)
                 notification.addAction(NotificationAction.createSimple("Show in folder") { RevealFileAction.openFile(target) })
                 notification.notify(project)

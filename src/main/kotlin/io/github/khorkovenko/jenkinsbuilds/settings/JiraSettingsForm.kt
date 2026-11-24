@@ -19,7 +19,7 @@ import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
 
-/** The Jira tab of Settings | Tools | Jenkins Builds: address, login, custom query and Test Connection. */
+/** The Jira tab of Settings | Tools | JJ Tracker: address, login, custom query and Test Connection. */
 class JiraSettingsForm {
 
     private val urlField = JBTextField()

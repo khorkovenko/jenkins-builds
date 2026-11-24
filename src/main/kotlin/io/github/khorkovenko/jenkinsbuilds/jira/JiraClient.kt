@@ -45,7 +45,7 @@ class JiraClient(val config: JiraConfig) {
     @Volatile private var cloud: Boolean? = null
 
     private fun send(method: String, url: String, body: String? = null): Response {
-        if (base.isEmpty()) throw JiraException("The Jira server address is not set. Open Settings | Tools | Jenkins Builds | Jira.")
+        if (base.isEmpty()) throw JiraException("The Jira server address is not set. Open Settings | Tools | JJ Tracker | Jira.")
         val builder = when (method) {
             "POST" -> HttpRequests.post(url, "application/json; charset=UTF-8")
             "PUT" -> HttpRequests.put(url, "application/json; charset=UTF-8")

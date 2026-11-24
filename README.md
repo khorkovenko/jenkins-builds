@@ -1,4 +1,4 @@
-# Jenkins Builds
+# JJ Tracker
 
 An IntelliJ Platform plugin that puts Jenkins and Jira into one tool window. Browse jobs, start and follow builds, let a push start a build, run a command when it is done and update the Jira issue. It works in IntelliJ IDEA and the other JetBrains IDEs, version 2025.3 or later.
 
@@ -41,13 +41,13 @@ Needs the bundled Terminal plugin. Git (for the auto build) and the SSH plugin o
 - **Coloured, searchable console:** errors and stack traces are red, warnings yellow, `Finished: SUCCESS` and `BUILD SUCCESSFUL` green, build steps blue. The search field above the log marks every match; Enter goes to the next one, Shift+Enter to the previous.
 - **Adaptive tool window:** docked at the bottom, the jobs, the builds and the build details stand side by side; docked left or right (or whenever the window is taller than wide), they are stacked. The divider positions are remembered separately for both layouts.
 
-Open it from **View | Tool Windows | Jenkins Builds** (docked at the bottom by default; move it with the tool window's ⋮ menu | Move To). The plugin has no default shortcuts.
+Open it from **View | Tool Windows | JJ Tracker** (docked at the bottom by default; move it with the tool window's ⋮ menu | Move To). The plugin has no default shortcuts.
 
 ## Jira
 
 The tool window has two tabs in its title bar: **Jenkins** and **Jira**.
 
-- **Login:** Settings | Tools | Jenkins Builds has a **Jira** tab beside the Jenkins one: server address, user name, password or token, and Test Connection. Jira Cloud: your e-mail and an API token. Jira Server or Data Center: your user name and password, or leave the user name empty and enter a personal access token. The secret is kept in the IDE password store.
+- **Login:** Settings | Tools | JJ Tracker has a **Jira** tab beside the Jenkins one: server address, user name, password or token, and Test Connection. Jira Cloud: your e-mail and an API token. Jira Server or Data Center: your user name and password, or leave the user name empty and enter a personal access token. The secret is kept in the IDE password store.
 - **One field, like the search page of Jira:** type a query (`assignee = khorkovenko`, `project = CP AND status = Open ORDER BY updated DESC`) and press Enter. Plain words work too: while you type they narrow the list that is shown, and Enter searches Jira for them; an issue key finds that issue. An empty field lists your open issues.
 - **Lock:** the lock button on the toolbar freezes the text of the field: it cannot be changed and is still there, and searched again, after the IDE is restarted. Unlock to edit it.
 - **An issue:** double-click (or Enter) opens it with its fields, description, attachments and all comments. Every comment is a block of its own under a title bar with the author, the time and its number. There you can add a comment and reassign the issue; the user is found by typing a part of the name. **Refresh** in the top right corner reads the issue again, so new comments appear without closing the window.
@@ -59,7 +59,7 @@ The plugin uses version 2 of the Jira REST API, which Jira Cloud and Jira Server
 
 ## Setting up the connection
 
-**Settings | Tools | Jenkins Builds**, or the gear button in the tool window.
+**Settings | Tools | JJ Tracker**, or the gear button in the tool window.
 
 | Field | Meaning |
 | --- | --- |
@@ -125,7 +125,7 @@ src/main/kotlin/io/github/khorkovenko/jenkinsbuilds/
   api/JenkinsClient.kt                   HTTP: login, crumb, session, errors
   model/Models.kt                        jobs, views, builds, parameters
   settings/JenkinsSettings.kt            saved settings and the password store
-  settings/JenkinsConfigurable.kt        Settings | Tools | Jenkins Builds
+  settings/JenkinsConfigurable.kt        Settings | Tools | JJ Tracker
   ui/JenkinsPanel.kt                     the tool window
   ui/BuildParametersDialog.kt            the form of a parameterized build
   ui/Format.kt                           texts and the Summary tab

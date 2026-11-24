@@ -24,7 +24,7 @@ import javax.swing.JPanel
 import javax.swing.JSpinner
 import javax.swing.SpinnerNumberModel
 
-/** Settings | Tools | Jenkins Builds. */
+/** Settings | Tools | JJ Tracker. */
 class JenkinsConfigurable : SearchableConfigurable, Configurable.NoScroll {
 
     private var panel: JPanel? = null
@@ -47,7 +47,7 @@ class JenkinsConfigurable : SearchableConfigurable, Configurable.NoScroll {
 
     override fun getId(): String = ID
 
-    override fun getDisplayName(): String = "Jenkins Builds"
+    override fun getDisplayName(): String = "JJ Tracker"
 
     override fun getPreferredFocusedComponent(): JComponent = urlField
 

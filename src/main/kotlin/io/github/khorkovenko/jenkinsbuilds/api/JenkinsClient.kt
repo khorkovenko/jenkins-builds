@@ -110,7 +110,7 @@ class JenkinsClient(val config: ConnectionConfig) {
         accept: String = "application/json",
         headers: Map<String, String> = emptyMap(),
     ): Response {
-        if (base.isEmpty()) throw JenkinsException("The Jenkins server address is not set. Open Settings | Tools | Jenkins Builds.")
+        if (base.isEmpty()) throw JenkinsException("The Jenkins server address is not set. Open Settings | Tools | JJ Tracker.")
         val builder = when {
             body != null -> HttpRequests.post(url, "application/x-www-form-urlencoded; charset=UTF-8").followRedirects(false)
             head -> HttpRequests.head(url)

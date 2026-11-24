@@ -245,7 +245,7 @@ object AutoBuildRunner {
     private fun notify(project: Project, title: String, text: String, type: NotificationType) {
         ApplicationManager.getApplication().invokeLater({
             if (project.isDisposed) return@invokeLater
-            NotificationGroupManager.getInstance().getNotificationGroup("Jenkins Builds").createNotification(title, text, type).notify(project)
+            NotificationGroupManager.getInstance().getNotificationGroup("JJ Tracker").createNotification(title, text, type).notify(project)
         }, ModalityState.any())
     }
 
@@ -408,7 +408,7 @@ object AutoBuildCommand {
                     "The command could not be sent to the terminal: ${e.message ?: e.javaClass.simpleName}"
                 }
                 if (problem != null) {
-                    NotificationGroupManager.getInstance().getNotificationGroup("Jenkins Builds")
+                    NotificationGroupManager.getInstance().getNotificationGroup("JJ Tracker")
                         .createNotification("Jenkins auto build", problem, NotificationType.ERROR).notify(project)
                 }
                 return@invokeLater
@@ -427,7 +427,7 @@ object AutoBuildCommand {
                 RunContentManager.getInstance(project).showRunContent(DefaultRunExecutor.getRunExecutorInstance(), descriptor)
                 process.startNotify()
             } catch (e: Exception) {
-                NotificationGroupManager.getInstance().getNotificationGroup("Jenkins Builds")
+                NotificationGroupManager.getInstance().getNotificationGroup("JJ Tracker")
                     .createNotification("Jenkins auto build", "The command could not be started: ${e.message ?: e.javaClass.simpleName}", NotificationType.ERROR)
                     .notify(project)
             }

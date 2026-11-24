@@ -616,7 +616,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
         if (favourites.isEmpty()) return
         val what = if (favourites.size == 1) "'${favourites[0]}'" else "all ${favourites.size} favourite jobs"
         if (Messages.showYesNoDialog(project, "Remove $what from the favourites? The jobs themselves stay.",
-                "Jenkins Builds", Messages.getQuestionIcon()) != Messages.YES) return
+                "JJ Tracker", Messages.getQuestionIcon()) != Messages.YES) return
         favourites.forEach { settings.setFavouriteJob(it, false) }
         rebuildTree()
         status("Removed ${favourites.size} job" + (if (favourites.size == 1) "" else "s") + " from the favourites")
@@ -1432,7 +1432,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
                 if (!toolWindow.isVisible) {
                     unseen += details.result ?: ""
                     val type = if (details.result == "SUCCESS") NotificationType.INFORMATION else NotificationType.WARNING
-                    NotificationGroupManager.getInstance().getNotificationGroup("Jenkins Builds")
+                    NotificationGroupManager.getInstance().getNotificationGroup("JJ Tracker")
                         .createNotification("Jenkins build finished", "${watch.job} ${details.title}: $result", type)
                         .notify(project)
                 } else {
@@ -1664,7 +1664,7 @@ class JenkinsPanel(private val project: Project, private val toolWindow: ToolWin
             override fun onFinished() {
                 // Cancelled before anything was saved: there is nothing to tell
                 if (cancelled && saved.isEmpty()) return
-                val group = NotificationGroupManager.getInstance().getNotificationGroup("Jenkins Builds")
+                val group = NotificationGroupManager.getInstance().getNotificationGroup("JJ Tracker")
                 val error = failure
                 val text = when {
                     cancelled -> "Download cancelled: ${saved.size} of ${list.size} files saved to ${directory.path}"

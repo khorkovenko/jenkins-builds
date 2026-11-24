@@ -48,7 +48,7 @@ object AutoBuildJira {
     private fun notify(project: Project, text: String, type: NotificationType) {
         ApplicationManager.getApplication().invokeLater({
             if (project.isDisposed) return@invokeLater
-            NotificationGroupManager.getInstance().getNotificationGroup("Jenkins Builds").createNotification("Jenkins auto build: Jira", text, type).notify(project)
+            NotificationGroupManager.getInstance().getNotificationGroup("JJ Tracker").createNotification("Jenkins auto build: Jira", text, type).notify(project)
         }, ModalityState.any())
     }
 

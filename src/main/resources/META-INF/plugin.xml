@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>io.github.khorkovenko.jenkinsbuilds</id>
-    <name>Jenkins Builds</name>
-    <vendor url="https://github.com/khorkovenko/jenkins-builds">khorkovenko</vendor>
+    <name>JJ Tracker</name>
+    <vendor url="https://github.com/khorkovenko/jj-tracker">khorkovenko</vendor>
 
     <description><![CDATA[
         <p>Jenkins and Jira in one tool window: browse jobs, start and follow builds, let a push start a build,
@@ -34,8 +34,8 @@
                 pictures, videos and files are links that download to your Downloads folder</li>
             <li>Add a comment, reassign, create an issue and choose its assignee. Works with Jira Cloud and Jira Server or Data Center</li>
         </ul>
-        <p>Passwords and tokens are kept in the IDE password store. Open <b>View | Tool Windows | Jenkins Builds</b> and set up
-        the servers in <b>Settings | Tools | Jenkins Builds</b> (tabs Jenkins and Jira).</p>
+        <p>Passwords and tokens are kept in the IDE password store. Open <b>View | Tool Windows | JJ Tracker</b> and set up
+        the servers in <b>Settings | Tools | JJ Tracker</b> (tabs Jenkins and Jira).</p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
@@ -50,14 +50,14 @@
     </dependencies>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow id="Jenkins Builds"
+        <toolWindow id="JJ Tracker"
                     anchor="bottom"
                     icon="/icons/jenkinsBuilds.svg"
                     factoryClass="io.github.khorkovenko.jenkinsbuilds.ui.JenkinsToolWindowFactory"/>
         <applicationConfigurable parentId="tools"
                                  id="io.github.khorkovenko.jenkinsbuilds.settings"
-                                 displayName="Jenkins Builds"
+                                 displayName="JJ Tracker"
                                  instance="io.github.khorkovenko.jenkinsbuilds.settings.JenkinsConfigurable"/>
-        <notificationGroup id="Jenkins Builds" displayType="BALLOON"/>
+        <notificationGroup id="JJ Tracker" displayType="BALLOON"/>
     </extensions>
 </idea-plugin>

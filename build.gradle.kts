@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "io.github.khorkovenko.jenkinsbuilds"
-version = "1.0.1"
+version = "1.0.2"
 
 repositories {
     mavenCentral()
@@ -40,6 +40,11 @@ intellijPlatform {
             untilBuild = provider { null } // no upper bound
         }
         changeNotes = """
+            <p><b>1.0.2</b></p>
+            <ul>
+                <li>The plugin is now called <b>JJ Tracker</b> (Jenkins + Jira). Settings, saved logins and favourites are kept;
+                    the tool window may open at its default place once.</li>
+            </ul>
             <p><b>1.0.1</b></p>
             <ul>
                 <li>Remove All Favourites on the toolbar unstars every favourite job.</li>
@@ -75,3 +80,6 @@ intellijPlatform {
         ides { recommended() }
     }
 }
+
+// The zip is named after the plugin, not the repository
+tasks.named<Zip>("buildPlugin") { archiveBaseName.set("jj-tracker") }
