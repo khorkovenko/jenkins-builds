@@ -1,6 +1,6 @@
 <idea-plugin>
     <id>io.github.khorkovenko.jenkinsbuilds</id>
-    <name>JJ Tracker</name>
+    <name>JJ Tracker (Jenkins, Jira)</name>
     <vendor url="https://github.com/khorkovenko/jj-tracker">khorkovenko</vendor>
 
     <description><![CDATA[
