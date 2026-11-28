@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "io.github.khorkovenko.jenkinsbuilds"
-version = "1.0.2"
+version = "1.0.0"
 
 repositories {
     mavenCentral()
@@ -40,25 +40,15 @@ intellijPlatform {
             untilBuild = provider { null } // no upper bound
         }
         changeNotes = """
-            <p><b>1.0.2</b></p>
+            <p><b>1.0.0</b>: first release of <b>JJ Tracker</b> (Jenkins + Jira).</p>
             <ul>
-                <li>The plugin is now called <b>JJ Tracker</b> (Jenkins + Jira). Settings, saved logins and favourites are kept;
-                    the tool window may open at its default place once.</li>
-            </ul>
-            <p><b>1.0.1</b></p>
-            <ul>
-                <li>Remove All Favourites on the toolbar unstars every favourite job.</li>
-                <li>The menu of a job starts with My Last Build, My Last Successful Build, Last Build and Last Successful
-                    Build: each lists the artifacts of that build to copy their links, and opens the build in the browser.</li>
-                <li>The menu of a job opens the job in the browser.</li>
-                <li>Copy Log Output in the build menus copies the whole console log of that build.</li>
-                <li>The menu of a build in the builds list copies the links of that build's artifacts and opens the build in the browser.</li>
-            </ul>
-            <p><b>1.0.0</b>: first release.</p>
-            <ul>
-                <li>Jenkins: jobs by view, section and folder with favourites, hidden folders and a group of running jobs;
-                    builds, parameterized builds with branch selectors, stop, cancel and rebuild; build details with
-                    artifacts, changes and a coloured, searchable console log; a badge for your own builds</li>
+                <li>Jenkins: jobs by view, section and folder with favourites, Remove All Favourites, hidden folders and
+                    a group of running jobs; builds, parameterized builds with branch selectors, stop, cancel and
+                    rebuild; build details with artifacts, changes and a coloured, searchable console log; a badge for
+                    your own builds</li>
+                <li>The menu of a job: My Last Build, My Last Successful Build, Last Build and Last Successful Build,
+                    each with its artifact links; opens the job or build in the browser; Copy Log Output copies the
+                    whole console log of a build</li>
                 <li>Auto build on push, with a command in a terminal, an SSH session or the Run window, and a Jira step
                     after a successful build</li>
                 <li>Jira: search with JQL or words, issues with comments and attachments, comment, reassign, create with an assignee</li>
